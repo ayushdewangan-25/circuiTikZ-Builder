@@ -46,7 +46,7 @@ The power-electronics parts, inductor, capacitor and AC source use shapes copied
   - a full `standalone` document or just the `circuitikz` environment
   - American or European symbol style
   - overall scale
-  - line width (0.4 to 1.2 pt)
+  - line width (presets from 0.4 to 1.2 pt, or a custom value from 0.1 to 5 pt)
 - **Diagram download** as a vector **PDF**, **SVG**, **PNG** (transparent background) or **JPG**, at 150, 300 or 600 dpi. Exports are true to size, with 1 grid step = 1 cm.
 - **Templates:** voltage divider, RC low-pass filter, series RLC circuit, and an AC–DC dual active bridge.
 - **Auto-save:** your circuit and settings are kept in the browser's local storage.

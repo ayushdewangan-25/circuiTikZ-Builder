@@ -118,8 +118,8 @@ const TEMPLATES = {
     ['sV', [1, 10], [1, 1]],
     ['wire', [1, 1], [5, 1]],
     ['wire', [1, 10], [5, 10]],
-    ['bisw', [3, 1], [3, 3]], ['wire', [3, 3], [3, 8]], ['bisw', [3, 8], [3, 10]],
-    ['bisw', [5, 1], [5, 3]], ['wire', [5, 3], [5, 8]], ['bisw', [5, 8], [5, 10]],
+    ['bisw', [3, 1.5], [3, 3.5]], ['wire', [3, 3.5], [3, 7.5]], ['bisw', [3, 7.5], [3, 9.5]],
+    ['bisw', [5, 1.5], [5, 3.5]], ['wire', [5, 3.5], [5, 7.5]], ['bisw', [5, 7.5], [5, 9.5]],
     ['wire', [3, 4], [6, 4]], ['L', [6, 4], [8, 4], { label: 'L' }], ['wire', [8, 4], [9, 4]],
     ['wire', [5, 7], [9, 7]],
     ['xfmr', [9, 4], { label: 'n:1' }],
@@ -127,8 +127,8 @@ const TEMPLATES = {
     ['varrow', [11, 5], [11, 6], { label: 'v_{\\mathrm{sec}}', color: 'green' }],
     ['wire', [10, 4], [12, 4]],
     ['wire', [10, 7], [14, 7]],
-    ['mosd', [12, 1], [12, 3]], ['wire', [12, 3], [12, 8]], ['mosd', [12, 8], [12, 10]],
-    ['mosd', [14, 1], [14, 3]], ['wire', [14, 3], [14, 8]], ['mosd', [14, 8], [14, 10]],
+    ['mosd', [12, 1], [12, 4]], ['wire', [12, 4], [12, 7.5]], ['mosd', [12, 7.5], [12, 9.5]],
+    ['mosd', [14, 1.5], [14, 3.5]], ['wire', [14, 3.5], [14, 7.5]], ['mosd', [14, 7.5], [14, 9.5]],
     ['wire', [12, 1], [18, 1], { term: '-o' }],
     ['wire', [12, 10], [18, 10], { term: '-o' }],
     ['C', [16, 10], [16, 1], { label: 'C_o' }],
@@ -137,7 +137,15 @@ const TEMPLATES = {
     ['text', [18, 9], { label: '$-$' }],
     ...[[3, 1], [3, 10], [3, 4], [5, 7], [12, 4], [14, 7], [14, 1], [16, 1], [14, 10], [16, 10]]
       .map((p) => ['circ', p]),
+    ...[[[3, 1], [3, 1.5]], [[5, 1], [5, 1.5]], [[3, 9.5], [3, 10]], [[5, 9.5], [5, 10]],
+      [[14, 1], [14, 1.5]], [[12, 9.5], [12, 10]], [[14, 9.5], [14, 10]]]
+      .map(([a, b]) => ['wire', a, b]),
   ],
+};
+
+// Settings a template applies along with its circuit, so it opens with the intended look.
+const TEMPLATE_SETTINGS = {
+  dab: { lineWidth: 1, gridStep: 0.5 },
 };
 
 // ---------------------------------------------------------------- state
@@ -147,6 +155,7 @@ const settings = {
   alignAssist: true,
 };
 const LINE_WIDTHS = [0.4, 0.6, 0.8, 1, 1.2];
+const LW_MIN = 0.1, LW_MAX = 5;
 // Element coordinates are stored in cm; these steps are exact in binary floating point.
 const GRID_STEPS = [1, 0.5, 0.25];
 const history = [];
@@ -1210,6 +1219,14 @@ function loadTemplate(name) {
   }
   selectedId = null;
   pending = null;
+  const tplSettings = TEMPLATE_SETTINGS[name];
+  if (tplSettings) {
+    Object.assign(settings, tplSettings);
+    syncLineWidthUI();
+    applyLineWidth();
+    $('opt-grid').value = String(settings.gridStep);
+    applyGrid();
+  }
   refresh();
 }
 
@@ -1611,11 +1628,34 @@ $('opt-autolabel').addEventListener('change', (e) => {
   save();
 });
 $('opt-linewidth').addEventListener('change', (e) => {
-  settings.lineWidth = Number(e.target.value);
+  const custom = $('opt-linewidth-custom');
+  if (e.target.value === 'custom') {
+    custom.hidden = false;
+    custom.value = settings.lineWidth;
+    custom.focus();
+    return;
+  }
+  custom.hidden = true;
+  setLineWidth(Number(e.target.value));
+});
+$('opt-linewidth-custom').addEventListener('input', (e) => {
+  const v = parseFloat(e.target.value);
+  if (Number.isFinite(v) && v >= LW_MIN && v <= LW_MAX) setLineWidth(Math.round(v * 100) / 100);
+});
+
+function setLineWidth(v) {
+  settings.lineWidth = v;
   applyLineWidth();
   renderCode();
   save();
-});
+}
+
+function syncLineWidthUI() {
+  const preset = LINE_WIDTHS.includes(settings.lineWidth);
+  $('opt-linewidth').value = preset ? String(settings.lineWidth) : 'custom';
+  $('opt-linewidth-custom').hidden = preset;
+  $('opt-linewidth-custom').value = settings.lineWidth;
+}
 
 // Preview strokes are exaggerated relative to print so thin settings stay visible on screen.
 function applyLineWidth() {
@@ -1949,7 +1989,7 @@ function load() {
   if (typeof s.fullDoc === 'boolean') settings.fullDoc = s.fullDoc;
   if (typeof s.scale === 'number' && s.scale > 0 && s.scale <= 10) settings.scale = s.scale;
   if (typeof s.autoLabel === 'boolean') settings.autoLabel = s.autoLabel;
-  if (LINE_WIDTHS.includes(s.lineWidth)) settings.lineWidth = s.lineWidth;
+  if (typeof s.lineWidth === 'number' && s.lineWidth >= LW_MIN && s.lineWidth <= LW_MAX) settings.lineWidth = s.lineWidth;
   if (GRID_STEPS.includes(s.gridStep)) settings.gridStep = s.gridStep;
   if (typeof s.alignAssist === 'boolean') settings.alignAssist = s.alignAssist;
 }
@@ -1960,7 +2000,7 @@ $('opt-style').value = settings.style;
 $('opt-doc').value = settings.fullDoc ? 'full' : 'env';
 $('opt-scale').value = settings.scale;
 $('opt-autolabel').checked = settings.autoLabel;
-$('opt-linewidth').value = String(settings.lineWidth);
+syncLineWidthUI();
 $('opt-grid').value = String(settings.gridStep);
 $('opt-align').checked = settings.alignAssist;
 applyGrid();
