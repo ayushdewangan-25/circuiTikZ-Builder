@@ -125,14 +125,13 @@ const SIG_HEAD = { len: 0.22, half: 0.085 }; // cm, signal arrowhead
 const ICON_HEAD = 0.55;               // arrowheads inside block icons, relative to SIG_HEAD
 
 const PALETTE = [
-  { title: 'Tools',            items: ['select', 'wire', 'hl'] },
-  { title: 'Power electronics', items: ['mosd', 'bisw', 'xfmr', 'varrow'] },
+  { title: 'Tools',            items: ['select', 'wire', 'hl', 'varrow', 'signal'] },
+  { title: 'Power electronics', items: ['mosd', 'bisw', 'xfmr', 'D', 'zD', 'leD'] },
   { title: 'Passive',          items: ['R', 'vR', 'C', 'L', 'fuse'] },
   { title: 'Sources',          items: ['V', 'I', 'sV', 'battery', 'cV', 'cI'] },
-  { title: 'Semiconductors',   items: ['D', 'zD', 'leD'] },
   { title: 'Switches & meters', items: ['nos', 'ncs', 'ammeter', 'voltmeter'] },
   { title: 'Nodes & labels',   items: ['ground', 'circ', 'ocirc', 'text', 'open'] },
-  { title: 'Control blocks',   items: ['signal', 'blk', 'tblk', 'piblk', 'mult', 'sum', 'pwm', 'inv', 'motor', 'group'] },
+  { title: 'Control blocks',   items: ['blk', 'tblk', 'piblk', 'mult', 'sum', 'pwm', 'inv', 'motor', 'group'] },
 ];
 
 const FIELDS = {

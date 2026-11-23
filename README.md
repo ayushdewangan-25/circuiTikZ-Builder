@@ -28,15 +28,15 @@ You can also host the folder on any static web server, such as GitHub Pages.
 ### Components
 | Group | Components |
 |---|---|
-| Power electronics | MOSFET with anti-parallel diode, bidirectional switch (back-to-back MOSFETs), transformer (n:1, with dot markings), arrow (filled-triangle, stealth or open end, at the end, start or both) |
+| Tools | Select, wire, current-path highlighter, arrow (filled-triangle, stealth or open end, at the end, start or both), signal arrow |
+| Power electronics | MOSFET with anti-parallel diode, bidirectional switch (back-to-back MOSFETs), transformer (n:1, with dot markings), diode, Zener diode, LED |
 | Passive | Resistor, variable resistor, capacitor, inductor, fuse |
 | Sources | DC voltage source, current source, AC source, battery, dependent voltage and current sources |
-| Semiconductors | Diode, Zener diode, LED |
 | Switches & meters | Open and closed switch, ammeter, voltmeter |
 | Nodes & labels | Ground, junction dot, open terminal, text label, open voltage branch |
-| Control blocks | Signal arrow, block, transform block (diagonal with two labels), PI block (with icon), multiplier, summing junction, modulator (carrier/PWM icon), inverter, motor, group box |
+| Control blocks | Block, transform block (diagonal with two labels), PI block (with icon), multiplier, summing junction, modulator (carrier/PWM icon), inverter, motor, group box |
 
-The power-electronics parts, inductor, capacitor and AC source use shapes copied exactly from a reference drawing. They are output as TikZ `pic`s, defined at the top of the generated code, so the pasted code needs no extra packages. Everything else uses standard CircuiTikZ components.
+The MOSFET, bidirectional switch, transformer, inductor, capacitor and AC source use shapes copied exactly from a reference drawing. They are output as TikZ `pic`s, defined at the top of the generated code, so the pasted code needs no extra packages. Everything else uses standard CircuiTikZ components.
 
 ### Current-path highlighter
 - **Highlighter tool (`H`):** click along a path to mark where current flows, the same way you draw a signal. Double-click, `Enter` or right-click finishes.
