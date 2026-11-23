@@ -28,14 +28,27 @@ You can also host the folder on any static web server, such as GitHub Pages.
 ### Components
 | Group | Components |
 |---|---|
-| Power electronics | MOSFET with anti-parallel diode, bidirectional switch (back-to-back MOSFETs), transformer (n:1, with dot markings), voltage arrow |
+| Power electronics | MOSFET with anti-parallel diode, bidirectional switch (back-to-back MOSFETs), transformer (n:1, with dot markings), arrow |
 | Passive | Resistor, variable resistor, capacitor, inductor, fuse |
 | Sources | DC voltage source, current source, AC source, battery, dependent voltage and current sources |
 | Semiconductors | Diode, Zener diode, LED |
-| Switches & meters | Open and closed switch, lamp, ammeter, voltmeter |
+| Switches & meters | Open and closed switch, ammeter, voltmeter |
 | Nodes & labels | Ground, junction dot, open terminal, VCC, VEE, text label, open voltage branch |
+| Control blocks | Signal arrow, block, PID block, transform block (diagonal with two labels), PI block (with icon), multiplier, summing junction, modulator (carrier/PWM icon), inverter, motor, group box |
 
 The power-electronics parts, inductor, capacitor and AC source use shapes copied exactly from a reference drawing. They are output as TikZ `pic`s, defined at the top of the generated code, so the pasted code needs no extra packages. Everything else uses standard CircuiTikZ components.
+
+### Current-path highlighter
+- **Highlighter tool (`H`):** click along a path to mark where current flows, the same way you draw a signal. Double-click, `Enter` or right-click finishes.
+- Each highlight has its own colour, width (pt), style (solid or dashed with round dashes) and opacity. Highlights are drawn underneath the circuit and exported as translucent TikZ lines. To select a highlight lying under a wire, `Alt`+click it.
+
+### Control block diagrams
+- **Signal arrow tool (`Q`):** click to start, then click to add corners. Right angles are inserted automatically. Double-click, `Enter` or right-click finishes the signal with an arrowhead. Any wire can also be given arrowheads or a start dot from its *Ends* option.
+- **Blocks** are placed by their centre. You set each block's size, fill colour, drop shadow, dashed border or no border at all, rounded corners and labels yourself.
+  - Labels are inserted as-is: use `$...$` for math and `\\` for a new line.
+  - Summing junctions have a style (⊕, ⊗ or plain) and a sign (+/−) for each input side.
+- **Moving blocks:** signals attached to a block follow it when it moves. Moving a group box also moves everything inside it.
+- **Output:** plain TikZ. No extra TikZ libraries are needed, and shadows are drawn directly. `bm` / `amsmath` are added to the preamble automatically when your labels use `\bm` or `\text`.
 
 ### Per-component options
 - Label, value, current and voltage annotations. Math mode is added automatically, so `R_1` becomes `$R_1$`.
@@ -48,7 +61,7 @@ The power-electronics parts, inductor, capacitor and AC source use shapes copied
   - overall scale
   - line width (presets from 0.4 to 1.2 pt, or a custom value from 0.1 to 5 pt)
 - **Diagram download** as a vector **PDF**, **SVG**, **PNG** (transparent background) or **JPG**, at 150, 300 or 600 dpi. Exports are true to size, with 1 grid step = 1 cm.
-- **Templates:** voltage divider, RC low-pass filter, series RLC circuit, and an AC–DC dual active bridge.
+- **Templates:** voltage divider, RC low-pass filter, series RLC circuit, a 1Φ single-stage AC-DC converter, and two control block diagrams (an SPS current-control loop and induction-motor field-oriented control).
 - **Auto-save:** your circuit and settings are kept in the browser's local storage.
 
 ## Keyboard shortcuts
@@ -62,7 +75,9 @@ The power-electronics parts, inductor, capacitor and AC source use shapes copied
 | `D` | Diode |
 | `M` / `B` | MOSFET + diode / bidirectional switch |
 | `X` | Transformer |
-| `A` | Voltage arrow |
+| `A` | Arrow |
+| `H` | Current-path highlighter |
+| `Q` / `K` / `J` | Signal arrow / block / summing junction |
 | `G` / `N` / `T` | Ground / junction dot / text label |
 | `Shift` + `R` | Rotate selected part 90° |
 | `[` / `]` | Shrink / grow selected part |

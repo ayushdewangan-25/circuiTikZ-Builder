@@ -28,7 +28,8 @@ const colorTex = (el) => COLORS[colorKey(el)].tex;
 const SIZE_MIN = 0.5, SIZE_MAX = 2.5;
 const elSize = (el) => el.size || 1;
 // The transformer's terminals are tied to the grid, so only its position/rotation can change.
-const canResize = (el) => !TYPES[el.type].xfmr && el.type !== 'wire' && el.type !== 'open';
+const canResize = (el) => !TYPES[el.type].xfmr && !TYPES[el.type].block && !TYPES[el.type].highlight
+  && el.type !== 'wire' && el.type !== 'open';
 // circuitikz's default bipole length, scaled per element via circuitikz/bipoles/length.
 const CTZ_BIPOLE_CM = 1.4;
 
@@ -46,7 +47,7 @@ const TYPES = {
   mosd:      { name: 'MOSFET + diode',      pic: 'fig-mosfet',   mirror: true, key: 'm' },
   bisw:      { name: 'Bidirectional switch', pic: 'fig-biswitch', mirror: true, key: 'b' },
   xfmr:      { name: 'Transformer',         node: true, xfmr: true, defLabel: 'n:1', key: 'x' },
-  varrow:    { name: 'Voltage arrow',       arrow: true, key: 'a' },
+  varrow:    { name: 'Arrow',               arrow: true, key: 'a' },
   cV:        { name: 'Dependent V source',  tikz: 'cV', prefix: 'V' },
   cI:        { name: 'Dependent I source',  tikz: 'cI', prefix: 'I' },
   battery:   { name: 'Battery',             tikz: 'battery1', prefix: 'B' },
@@ -55,7 +56,6 @@ const TYPES = {
   leD:       { name: 'LED',                 tikz: 'leD', prefix: 'D' },
   nos:       { name: 'Switch (open)',       tikz: 'nos', prefix: 'S' },
   ncs:       { name: 'Switch (closed)',     tikz: 'ncs', prefix: 'S' },
-  lamp:      { name: 'Lamp',                tikz: 'lamp', prefix: 'X' },
   ammeter:   { name: 'Ammeter',             tikz: 'ammeter' },
   voltmeter: { name: 'Voltmeter',           tikz: 'voltmeter' },
   open:      { name: 'Open (voltage)',      tikz: 'open' },
@@ -65,26 +65,99 @@ const TYPES = {
   vcc:       { name: 'VCC',                 tikz: 'vcc',    node: true, defLabel: 'V_{CC}' },
   vee:       { name: 'VEE',                 tikz: 'vee',    node: true, defLabel: 'V_{EE}' },
   text:      { name: 'Text label',          tikz: null,     node: true, key: 't', defLabel: 'Label' },
+  // ---- control block diagrams (blocks are placed by their centre; size in cm)
+  signal:    { name: 'Signal arrow',        signalTool: true, key: 'q' },
+  blk:       { name: 'Block',               node: true, block: true, key: 'k',
+               preset: { kind: 'text', w: 1.5, h: 1, fill: 'gray', shadow: true, label: 'Block' } },
+  pid:       { name: 'PID block',           node: true, block: true,
+               preset: { kind: 'text', w: 1, h: 0.5, fill: 'lavender', shadow: true, label: 'PID' } },
+  tblk:      { name: 'Transform block',     node: true, block: true,
+               preset: { kind: 'transform', w: 1.25, h: 1.25, fill: 'yellow', shadow: true, label: '$dq$', label2: '$\\alpha\\beta$' } },
+  piblk:     { name: 'PI block (icon)',     node: true, block: true,
+               preset: { kind: 'pi', w: 1.5, h: 1.25, fill: 'blue', shadow: true, label: 'PI' } },
+  mult:      { name: 'Multiplier',          node: true, block: true,
+               preset: { kind: 'text', w: 0.5, h: 0.5, fill: 'white', shadow: true, label: '$\\times$' } },
+  sum:       { name: 'Summing junction',    node: true, block: true, key: 'j',
+               preset: { kind: 'sum', w: 0.5, h: 0.5, fill: 'white', sumStyle: 'plus', signS: '-' } },
+  pwm:       { name: 'Modulator',           node: true, block: true,
+               preset: { kind: 'pwm', w: 2.5, h: 3, fill: 'light', shadow: true, label: 'Modulator' } },
+  inv:       { name: 'Inverter',            node: true, block: true,
+               preset: { kind: 'inverter', w: 1.5, h: 2, fill: 'darkgray', shadow: true } },
+  motor:     { name: 'Motor',               node: true, block: true,
+               preset: { kind: 'text', shape: 'circle', w: 1, h: 1, fill: 'darkgray', shadow: true, label: 'IM' } },
+  group:     { name: 'Group box',           node: true, block: true,
+               preset: { kind: 'group', w: 5, h: 3, fill: 'light', dashed: true, rounded: true, label: 'Group' } },
+  // Thick translucent stroke for marking current-flow paths; drawn behind everything but groups.
+  hl:        { name: 'Highlighter',         highlight: true, key: 'h',
+               preset: { hlColor: 'salmon', hlWidth: 5, hlStyle: 'solid', hlOpacity: 0.6 } },
 };
 
+const HL_COLORS = {
+  salmon: { name: 'Salmon', rgb: [232, 120, 100] },
+  red:    { name: 'Red',    rgb: [220, 40, 40] },
+  orange: { name: 'Orange', rgb: [245, 150, 40] },
+  yellow: { name: 'Yellow', rgb: [255, 210, 0] },
+  green:  { name: 'Green',  rgb: [60, 170, 75] },
+  blue:   { name: 'Blue',   rgb: [60, 130, 230] },
+  purple: { name: 'Purple', rgb: [150, 80, 190] },
+  gray:   { name: 'Gray',   rgb: [150, 150, 150] },
+};
+const HL_PX = 2.5; // preview px per pt, matching the exaggerated preview line widths
+const hlRgb = (el) => (HL_COLORS[el.hlColor] || HL_COLORS.salmon).rgb;
+
+// Block fills as exact RGB so the preview and the xcolor output match.
+const FILLS = {
+  none:     { name: 'None',       rgb: null },
+  white:    { name: 'White',      rgb: [255, 255, 255] },
+  light:    { name: 'Light gray', rgb: [236, 236, 236] },
+  gray:     { name: 'Gray',       rgb: [217, 217, 217] },
+  darkgray: { name: 'Dark gray',  rgb: [190, 190, 190] },
+  blue:     { name: 'Blue',       rgb: [155, 200, 235] },
+  lavender: { name: 'Lavender',   rgb: [204, 204, 255] },
+  yellow:   { name: 'Yellow',     rgb: [255, 245, 155] },
+  pink:     { name: 'Pink',       rgb: [255, 204, 204] },
+  green:    { name: 'Green',      rgb: [204, 240, 204] },
+};
+const fillCss = (k) => (FILLS[k]?.rgb ? `rgb(${FILLS[k].rgb.join(',')})` : 'none');
+const fillTex = (k) => {
+  const c = FILLS[k]?.rgb;
+  return c ? `{rgb,255:red,${c[0]};green,${c[1]};blue,${c[2]}}` : '';
+};
+const BLOCK_KINDS = ['text', 'transform', 'pi', 'pwm', 'inverter', 'group', 'sum'];
+const SUM_STYLES = { plus: 'Circle with +', cross: 'Circle with ×', plain: 'Plain circle' };
+const BLOCK_SHADOW = 0.07;            // cm, offset of the drop shadow
+const SIG_HEAD = { len: 0.22, half: 0.085 }; // cm, signal arrowhead
+const ICON_HEAD = 0.55;               // arrowheads inside block icons, relative to SIG_HEAD
+
 const PALETTE = [
-  { title: 'Tools',            items: ['select', 'wire'] },
+  { title: 'Tools',            items: ['select', 'wire', 'hl'] },
   { title: 'Power electronics', items: ['mosd', 'bisw', 'xfmr', 'varrow'] },
   { title: 'Passive',          items: ['R', 'vR', 'C', 'L', 'fuse'] },
   { title: 'Sources',          items: ['V', 'I', 'sV', 'battery', 'cV', 'cI'] },
   { title: 'Semiconductors',   items: ['D', 'zD', 'leD'] },
-  { title: 'Switches & meters', items: ['nos', 'ncs', 'lamp', 'ammeter', 'voltmeter'] },
+  { title: 'Switches & meters', items: ['nos', 'ncs', 'ammeter', 'voltmeter'] },
   { title: 'Nodes & labels',   items: ['ground', 'circ', 'ocirc', 'vcc', 'vee', 'text', 'open'] },
+  { title: 'Control blocks',   items: ['signal', 'blk', 'pid', 'tblk', 'piblk', 'mult', 'sum', 'pwm', 'inv', 'motor', 'group'] },
 ];
 
 const FIELDS = {
   label:   ['Label',   'l=', 'e.g. R_1'],
+  label2:  ['Second label', '', 'bottom-right text'],
   value:   ['Value',   'a=', 'e.g. 10\\,\\Omega'],
   current: ['Current', 'i=', 'e.g. i_1'],
   voltage: ['Voltage', 'v=', 'e.g. v_R'],
 };
 
 const TERMINALS = ['', '*-*', 'o-o', '*-', '-*', 'o-', '-o', '*-o', 'o-*'];
+// Wires/signals may also end in an arrowhead ('>' at the end, '<' at the start).
+const WIRE_TERMINALS = [...TERMINALS, '->', '<-', '<->', '*->', 'o->'];
+
+// Template helper: a signal polyline with an arrowhead at its last point.
+const SIG = (pts, extra = {}) => ['wire', pts[0], pts[pts.length - 1], {
+  term: '->',
+  ...(pts.length > 2 ? { via: pts.slice(1, -1).map(([x, y]) => ({ x, y })) } : {}),
+  ...extra,
+}];
 
 const TEMPLATES = {
   divider: [
@@ -146,7 +219,103 @@ const TEMPLATES = {
 // Settings a template applies along with its circuit, so it opens with the intended look.
 const TEMPLATE_SETTINGS = {
   dab: { lineWidth: 1, gridStep: 0.5 },
+  ctrlsps: { lineWidth: 0.8, gridStep: 0.25 },
+  foc: { lineWidth: 0.8, gridStep: 0.25 },
 };
+
+// SPS current-control loop of the M-DAB charger.
+TEMPLATES.ctrlsps = [
+  ['group', [2.875, 2.875], { w: 5.75, h: 4.25, label: 'Current Reference generation' }],
+  ['group', [10.25, 2.25], { w: 5.5, h: 3, label: 'Controller $\\longrightarrow$ Linearizer' }],
+  ['text', [0.35, 2], { label: '$\\bm{P^*}$' }],
+  SIG([[0.75, 2], [1.75, 2]], { term: '*->' }),
+  ['blk', [2.5, 2], { w: 1.5, h: 1.25, label: '$\\displaystyle\\frac{\\sqrt{2}}{V_{rms}}$' }],
+  SIG([[3.25, 2], [4.75, 2]], { label: 'I^*_{pk}' }),
+  ['mult', [5, 2]],
+  ['text', [0.35, 4], { label: '$\\bm{v_g}$', color: 'green' }],
+  SIG([[0.75, 4], [1.75, 4]], { term: '*->', color: 'green' }),
+  ['blk', [2.5, 4], { w: 1.5, h: 1, label: 'PLL' }],
+  SIG([[3.25, 4], [5, 4], [5, 2.25]], { label: '\\sin(\\omega t)' }),
+  SIG([[5.25, 2], [6.5, 2]], { label: 'i_g^*' }),
+  ['sum', [6.75, 2]],
+  ['text', [6.75, 4.45], { label: '$\\bm{i_g}$', color: 'red' }],
+  SIG([[6.75, 4], [6.75, 2.25]], { term: '*->', color: 'red' }),
+  SIG([[7, 2], [8, 2]]),
+  ['piblk', [8.75, 2]],
+  SIG([[9.5, 2], [10.5, 2]], { label: '\\sin\\varphi' }),
+  ['blk', [11.5, 2], { w: 2, h: 1, label: '$\\sin^{-1}(\\cdot)$' }],
+  SIG([[12.5, 2], [13.5, 2]], { label: '\\varphi' }),
+  ['blk', [14.5, 2], { w: 2, h: 1, label: 'Rad. to\\\\Degree' }],
+  SIG([[15.5, 2], [16.5, 2]], { label: '\\varphi^\\circ' }),
+  ['pwm', [17.75, 2.25], { w: 2.5, h: 3.5, label: '$d=0.5$(VPS)\\\\Modulator' }],
+  SIG([[19, 2], [20, 2]]),
+  ['text', [20.6, 2], { label: '$\\bm{S_{1-8}}$' }],
+];
+
+// Field-oriented control of an induction machine.
+TEMPLATES.foc = [
+  ['text', [0.35, 1], { label: '$\\omega_\\mathrm{m}^*$' }],
+  SIG([[0.75, 1], [1.5, 1]]),
+  ['sum', [1.75, 1], { sumStyle: 'plain' }],
+  SIG([[2, 1], [2.5, 1]]),
+  ['pid', [3, 1]],
+  SIG([[3.5, 1], [4.25, 1]], { label: 'T_\\mathrm{m}^*' }),
+  ['tblk', [4.75, 1], { w: 1, h: 1, label: '$T_\\mathrm{m}$', label2: '$i_{\\mathrm{s}q}$' }],
+  SIG([[5.25, 1], [6.5, 1]], { label: 'i_{\\mathrm{s}q}^*' }),
+  ['sum', [6.75, 1], { sumStyle: 'plain' }],
+  SIG([[7, 1], [7.75, 1]]),
+  ['pid', [8.25, 1]],
+  SIG([[8.75, 1], [9.75, 1]], { label: 'v_q^*' }),
+  ['text', [3.05, 2.25], { label: '$|\\psi_\\mathrm{r}|^*$' }],
+  SIG([[3.75, 2.25], [4.25, 2.25]]),
+  ['tblk', [4.75, 2.25], { w: 1, h: 1, label: '$|\\psi_\\mathrm{r}|$', label2: '$i_{\\mathrm{s}d}$' }],
+  SIG([[5.25, 2.25], [6, 2.25]], { label: 'i_{\\mathrm{s}d}^*' }),
+  ['sum', [6.25, 2.25], { sumStyle: 'plain' }],
+  SIG([[6.5, 2.25], [7.75, 2.25]]),
+  ['pid', [8.25, 2.25]],
+  SIG([[8.75, 2.25], [9.75, 2.25]], { label: 'v_d^*' }),
+  ['tblk', [10.25, 1.625], { w: 1, h: 2, label: '$dq$', label2: '$\\alpha\\beta$' }],
+  SIG([[10.75, 1], [11.75, 1]], { label: 'v_\\alpha^*' }),
+  SIG([[10.75, 2.25], [11.75, 2.25]], { label: 'v_\\beta^*' }),
+  ['tblk', [12.25, 1.625], { w: 1, h: 2, label: '$\\alpha\\beta$', label2: '$abc$' }],
+  SIG([[12.75, 1], [14, 1]], { label: 'v_a^*' }),
+  SIG([[12.75, 1.625], [14, 1.625]], { label: 'v_b^*' }),
+  SIG([[12.75, 2.25], [14, 2.25]], { label: 'v_c^*' }),
+  ['blk', [14.75, 1.625], { w: 1.5, h: 2, fill: 'pink', label: 'PWM' }],
+  SIG([[15.5, 1], [16.5, 1]], { label: 's_a' }),
+  SIG([[15.5, 1.625], [16.5, 1.625]], { label: 's_b' }),
+  SIG([[15.5, 2.25], [16.5, 2.25]], { label: 's_c' }),
+  ['inv', [17.25, 1.625]],
+  ['wire', [18, 1.25], [18.75, 1.25]],
+  ['wire', [18, 1.625], [18.75, 1.625]],
+  ['wire', [18, 2], [18.75, 2]],
+  SIG([[18.75, 2], [18.75, 5.25], [17.75, 5.25]]),
+  SIG([[19, 2], [19, 6], [17.75, 6]]),
+  ['text', [18.3, 5], { label: '$i_{\\mathrm{s}a}$' }],
+  ['text', [18.3, 5.75], { label: '$i_{\\mathrm{s}b}$' }],
+  ['tblk', [17.25, 5.5], { w: 1, h: 1.5, label: '$\\alpha\\beta$', label2: '$abc$' }],
+  SIG([[16.75, 5.25], [13.75, 5.25]]),
+  SIG([[16.75, 6], [13.75, 6]]),
+  ['text', [14.15, 4.98], { label: '$i_{\\mathrm{s}\\alpha}$' }],
+  ['text', [14.15, 5.73], { label: '$i_{\\mathrm{s}\\beta}$' }],
+  ['blk', [12.75, 5.5], { w: 2, h: 1.5, fill: 'yellow', label: 'Rotor flux\\\\estimation' }],
+  ['circ', [14.5, 5.25]],
+  ['circ', [15.25, 6]],
+  SIG([[14.5, 5.25], [14.5, 4.5], [9.75, 4.5]]),
+  SIG([[15.25, 6], [15.25, 3.5], [9.75, 3.5]]),
+  ['tblk', [9, 4], { w: 1.5, h: 1.5, label: '$dq$', label2: '$\\alpha\\beta$' }],
+  SIG([[8.25, 3.5], [6.75, 3.5], [6.75, 1.25]], { label: 'i_{\\mathrm{s}q}' }),
+  SIG([[8.25, 4.5], [6.25, 4.5], [6.25, 2.5]], { label: 'i_{\\mathrm{s}d}' }),
+  SIG([[11.75, 5.5], [9, 5.5], [9, 4.75]]),
+  ['text', [11.45, 5.25], { label: '$\\varphi$' }],
+  ['circ', [10.25, 5.5]],
+  SIG([[10.25, 5.5], [10.25, 2.625]]),
+  SIG([[19.25, 2], [19.25, 7], [1.75, 7], [1.75, 1.25]]),
+  ['circ', [12.75, 7]],
+  SIG([[12.75, 7], [12.75, 6.25]]),
+  ['text', [13.25, 6.75], { label: '$\\omega_\\mathrm{m}$' }],
+  ['motor', [19, 1.625]],
+];
 
 // ---------------------------------------------------------------- state
 let state = { elements: [], nextId: 1 };
@@ -162,6 +331,7 @@ const history = [];
 let tool = 'select';
 let selectedId = null;
 let pending = null;   // first click of a two-terminal element
+let sigPts = null;    // points of a signal arrow being drawn
 let hover = null;
 let drag = null;
 let fieldSnap = null;
@@ -358,8 +528,6 @@ function bipoleSymbol(type, style) {
       return { hw: 16, svg: '<path d="M-12 -1 L14 -14"/><circle class="hollow" cx="-14" r="2.5"/><circle class="hollow" cx="14" r="2.5"/>' };
     case 'ncs':
       return { hw: 16, svg: '<path d="M-12 -1 L16 -4"/><circle class="hollow" cx="-14" r="2.5"/><circle class="hollow" cx="14" r="2.5"/>' };
-    case 'lamp':
-      return { hw: 14, svg: '<circle r="14"/><path d="M-10 -10 L10 10 M-10 10 L10 -10"/>' };
     case 'ammeter':
       return { hw: 14, svg: meter('A') };
     case 'voltmeter':
@@ -392,13 +560,36 @@ function termMark(c, x, y = 0) {
 // Approximate LaTeX -> styled text runs for the preview and image exports.
 const PRETTY = {
   Omega: 'Ω', ohm: 'Ω', omega: 'ω', mu: 'µ', micro: 'µ', alpha: 'α', beta: 'β', pi: 'π',
-  theta: 'θ', phi: 'φ', Delta: 'Δ', tau: 'τ', kilo: 'k', mega: 'M', milli: 'm', nano: 'n',
-  pico: 'p', farad: 'F', henry: 'H', volt: 'V', ampere: 'A', hertz: 'Hz', infty: '∞',
+  theta: 'θ', phi: 'φ', varphi: 'φ', psi: 'ψ', Psi: 'Ψ', Delta: 'Δ', tau: 'τ', kilo: 'k',
+  mega: 'M', milli: 'm', nano: 'n', pico: 'p', farad: 'F', henry: 'H', volt: 'V', ampere: 'A', hertz: 'Hz',
+  infty: '∞', times: '×', cdot: '·', sqrt: '√', circ: '°', ast: '*', longrightarrow: '→',
+  rightarrow: '→', to: '→', sin: 'sin', cos: 'cos', arcsin: 'arcsin', tan: 'tan', ln: 'ln', exp: 'exp',
 };
+
+// Reads a {...} group (or a single character) starting at i.
+function texGroup(s, i) {
+  while (s[i] === ' ') i++;
+  if (s[i] !== '{') return s[i] ? { body: s[i], end: i + 1 } : null;
+  for (let d = 0, j = i; j < s.length; j++) {
+    if (s[j] === '{') d++;
+    else if (s[j] === '}' && --d === 0) return { body: s.slice(i + 1, j), end: j + 1 };
+  }
+  return null;
+}
+
+// \frac{a}{b} -> a/b for the preview.
+function expandFrac(s) {
+  let i;
+  while ((i = s.indexOf('\\frac')) >= 0) {
+    const a = texGroup(s, i + 5), b = a && texGroup(s, a.end);
+    s = b ? s.slice(0, i) + a.body + '/' + b.body + s.slice(b.end) : s.slice(0, i) + s.slice(i + 5);
+  }
+  return s;
+}
 
 // Splits a label into runs with sh = -1 (subscript), 0 (normal) or 1 (superscript).
 function labelRuns(s) {
-  s = s
+  s = expandFrac(s)
     .replace(/\\([a-zA-Z]+)/g, (m, name) => (name in PRETTY ? PRETTY[name] : m))
     .replace(/\\[,;:! ]/g, ' ')
     .replace(/\\[a-zA-Z]+/g, '')
@@ -437,11 +628,156 @@ function labelRuns(s) {
 }
 
 // ---------------------------------------------------------------- drawing
+// Filled arrowhead (px) with its tip at `tip`, pointing away from `from`.
+function arrowHeadSvg(tip, from, k = 1) {
+  const dx = tip.x - from.x, dy = tip.y - from.y, d = Math.hypot(dx, dy) || 1;
+  const ux = dx / d, uy = dy / d, L = SIG_HEAD.len * GRID * k, W = SIG_HEAD.half * GRID * k;
+  const bx = tip.x - ux * L, by = tip.y - uy * L;
+  return `<path class="fill nostroke" d="M${fmt(tip.x)} ${fmt(tip.y)} L${fmt(bx - uy * W)} ${fmt(by + ux * W)} `
+    + `L${fmt(bx + uy * W)} ${fmt(by - ux * W)} Z"/>`;
+}
+
+// Where a wire's label goes: above the first segment, or beside it if that segment is vertical.
+function wireLabelSpot(p0, p1, gap) {
+  const m = { x: (p0.x + p1.x) / 2, y: (p0.y + p1.y) / 2 };
+  return p0.x === p1.x ? { p: { x: m.x + gap, y: m.y }, anchor: 'start' } : { p: { x: m.x, y: m.y - gap }, anchor: 'middle' };
+}
+
+const isBlock = (el) => !!TYPES[el.type]?.block;
+const isRound = (el) => el.shape === 'circle' || el.kind === 'sum';
+const blockRect = (el) => ({ x0: el.a.x - el.w / 2, x1: el.a.x + el.w / 2, y0: el.a.y - el.h / 2, y1: el.a.y + el.h / 2 });
+function insideBlock(el, q) {
+  const r = blockRect(el), e = 1e-6;
+  return q.x >= r.x0 - e && q.x <= r.x1 + e && q.y >= r.y0 - e && q.y <= r.y1 + e;
+}
+// Groups first, then highlights, so both sit behind the circuit.
+const orderedElements = () => [
+  ...state.elements.filter((e) => e.kind === 'group'),
+  ...state.elements.filter((e) => e.type === 'hl'),
+  ...state.elements.filter((e) => e.kind !== 'group' && e.type !== 'hl'),
+];
+
+// Icon strokes in unit box coordinates (u right, v up); `arrow` puts a head on the last point.
+function blockIcon(el) {
+  switch (el.kind) {
+    case 'transform': return [{ p: [[0, 0], [1, 1]] }];
+    case 'pi': return [
+      { p: [[0.18, 0.12], [0.18, 0.9]], arrow: true },
+      { p: [[0.1, 0.2], [0.92, 0.2]], arrow: true },
+      { p: [[0.18, 0.45], [0.8, 0.72]] },
+    ];
+    case 'pwm': {
+      const tri = [], sq = [];
+      for (let i = 0; i <= 6; i++) tri.push([0.1 + i * 0.12, i % 2 ? 0.52 : 0.32]);
+      for (let i = 0; i < 3; i++) {
+        const x = 0.1 + i * 0.24;
+        sq.push([x, 0.08], [x, 0.22], [x + 0.12, 0.22], [x + 0.12, 0.08]);
+      }
+      sq.push([0.82, 0.08]);
+      return [{ p: [[0.06, 0.42], [0.94, 0.42]], arrow: true }, { p: tri },
+        { p: [[0.06, 0.15], [0.94, 0.15]], arrow: true }, { p: sq }];
+    }
+    case 'sum':
+      if (el.sumStyle === 'plus') return [{ p: [[0, 0.5], [1, 0.5]] }, { p: [[0.5, 0], [0.5, 1]] }];
+      if (el.sumStyle === 'cross') return [{ p: [[0.146, 0.146], [0.854, 0.854]] }, { p: [[0.146, 0.854], [0.854, 0.146]] }];
+      return [];
+    default: return [];
+  }
+}
+// Sign label positions around a summing junction (unit box coords + text anchors).
+const SUM_SIGNS = {
+  signW: { u: 0, v: 1, svg: 'end', dy: -8, tex: 'south east' },
+  signN: { u: 1, v: 1, svg: 'start', dy: -8, tex: 'south west' },
+  signS: { u: 1, v: 0, svg: 'start', dy: 10, tex: 'north west' },
+};
+
+function roundRectPath(x, y, w, h, r) {
+  r = Math.min(r, w / 2, h / 2);
+  const k = r * 0.4477; // r * (1 - 0.5523): bezier handles for a quarter circle
+  return `M${x + r} ${y} H${x + w - r} C${x + w - k} ${y} ${x + w} ${y + k} ${x + w} ${y + r} `
+    + `V${y + h - r} C${x + w} ${y + h - k} ${x + w - k} ${y + h} ${x + w - r} ${y + h} `
+    + `H${x + r} C${x + k} ${y + h} ${x} ${y + h - k} ${x} ${y + h - r} `
+    + `V${y + r} C${x} ${y + k} ${x + k} ${y} ${x + r} ${y} Z`;
+}
+
+function drawBlock(el, g, withText = true) {
+  const cx = el.a.x * GRID, cy = el.a.y * GRID, w = el.w * GRID, h = el.h * GRID;
+  const x0 = cx - w / 2, y0 = cy - h / 2, sh = BLOCK_SHADOW * GRID;
+  const round = isRound(el);
+  // A group's body ignores the mouse so the blocks drawn on top of it stay clickable.
+  const style = `${el.kind === 'group' ? 'class="nohit" ' : ''}style="fill:${fillCss(el.fill)};`
+    + `${el.noBorder ? 'stroke:none;' : el.dashed ? 'stroke-dasharray:6 4;' : ''}"`;
+  let html = '';
+  if (el.shadow) {
+    html += round
+      ? `<circle class="nostroke" style="fill:#9a9a9a" cx="${cx + sh}" cy="${cy + sh}" r="${w / 2}"/>`
+      : `<rect class="nostroke" style="fill:#9a9a9a" x="${x0 + sh}" y="${y0 + sh}" width="${w}" height="${h}"/>`;
+  }
+  if (round) html += `<circle ${style} cx="${cx}" cy="${cy}" r="${w / 2}"/>`;
+  else if (el.rounded) html += `<path ${style} d="${roundRectPath(x0, y0, w, h, 0.2 * GRID)}"/>`;
+  else html += `<rect ${style} x="${x0}" y="${y0}" width="${w}" height="${h}"/>`;
+
+  const U = ([u, v]) => ({ x: x0 + u * w, y: y0 + (1 - v) * h });
+  for (const s of blockIcon(el)) {
+    const P = s.p.map(U);
+    html += `<polyline points="${P.map((q) => `${fmt(q.x)},${fmt(q.y)}`).join(' ')}"/>`;
+    if (s.arrow) html += arrowHeadSvg(P[P.length - 1], P[P.length - 2], ICON_HEAD);
+  }
+  if (el.kind === 'inverter') {
+    const pic = PICS['fig-mosfet'];
+    const k = Math.min(1.6, (0.7 * h) / (2 * pic.hw * PX), (0.8 * w) / ((pic.ymax - pic.ymin) * PX));
+    html += `<g transform="translate(${cx} ${cy}) rotate(90) scale(${fmt(k)})">${primsToSvg(pic.prims)}</g>`;
+  }
+  // Groups are only grabbed by their border so blocks inside stay clickable.
+  html += el.kind === 'group'
+    ? `<rect class="hit hit-edge" x="${x0}" y="${y0}" width="${w}" height="${h}"/>`
+    : `<rect class="hit" x="${x0}" y="${y0}" width="${w}" height="${h}"/>`;
+  g.innerHTML = html;
+  if (!withText) return;
+
+  const cls = (s) => (/^\s*\$.*\$\s*$/.test(s) ? 'lbl' : 'lbl plain');
+  const lines = (el.label || '').split(/\\\\/).map((s) => s.trim()).filter(Boolean);
+  const block = (yTop, anchor = 'middle', x = cx) => lines.forEach((s, i) => g.appendChild(svgText(x, yTop + i * 18, s, anchor, cls(s))));
+  switch (el.kind) {
+    case 'transform': {
+      const p1 = U([0.3, 0.7]), p2 = U([0.7, 0.3]);
+      if (el.label) g.appendChild(svgText(p1.x, p1.y, el.label, 'middle', cls(el.label)));
+      if (el.label2) g.appendChild(svgText(p2.x, p2.y, el.label2, 'middle', cls(el.label2)));
+      break;
+    }
+    case 'pi': block(y0 + h + 14); break;
+    case 'pwm': block(y0 + 14); break;
+    case 'group': block(y0 - 12 - (lines.length - 1) * 18); break;
+    case 'sum':
+      for (const [k, s] of Object.entries(SUM_SIGNS)) {
+        if (!el[k]) continue;
+        const p = U([s.u, s.v]);
+        g.appendChild(svgText(p.x, p.y + s.dy, el[k] === '-' ? '−' : '+', s.svg, 'lbl plain'));
+      }
+      break;
+    case 'inverter': break;
+    default: block(cy - ((lines.length - 1) * 18) / 2);
+  }
+}
 function drawElement(el, selected, ghost = false) {
   const def = TYPES[el.type];
   const g = svgNode('g', { class: 'el' + (selected ? ' selected' : '') + (ghost ? ' ghost-el' : '') });
   g.style.setProperty('--c', COLORS[colorKey(el)].css);
   if (!ghost) g.dataset.id = el.id;
+
+  if (def.block) {
+    drawBlock(el, g);
+    return g;
+  }
+
+  if (def.highlight) {
+    const pts = [el.a, ...(el.via || []), el.b].map((q) => `${q.x * GRID},${q.y * GRID}`).join(' ');
+    const w = el.hlWidth * HL_PX;
+    const dash = el.hlStyle === 'dashed' ? `stroke-dasharray:${fmt(w * 1.2)} ${fmt(w * 2)};` : '';
+    g.innerHTML = `<polyline class="hit" points="${pts}"/><polyline points="${pts}" style="stroke:rgb(${hlRgb(el).join(',')});`
+      + `stroke-width:${fmt(w)}px;stroke-opacity:${el.hlOpacity};stroke-linecap:round;stroke-linejoin:round;${dash}"/>`;
+    return g;
+  }
 
   if (def.xfmr) {
     const x = el.a.x * GRID, y = el.a.y * GRID;
@@ -503,13 +839,21 @@ function drawElement(el, selected, ghost = false) {
 
   const pic = def.pic && PICS[def.pic];
 
-  if (el.via?.length) {
-    // Routed wire: drawn as an untransformed polyline through its bend points.
+  if (el.type === 'wire') {
+    // Wires/signals are drawn untransformed as a polyline through their bend points.
     inner.removeAttribute('transform');
-    const pts = [el.a, ...el.via, el.b].map((q) => `${q.x * GRID},${q.y * GRID}`).join(' ');
+    const P = [el.a, ...(el.via || []), el.b].map((q) => ({ x: q.x * GRID, y: q.y * GRID }));
+    const pts = P.map((q) => `${q.x},${q.y}`).join(' ');
     const [ts, te] = (el.term || '-').split('-');
     inner.innerHTML = `<polyline class="hit" points="${pts}"/><polyline points="${pts}"/>`
-      + termMark(ts, ax, ay) + termMark(te, bx, by);
+      + termMark(ts, ax, ay) + termMark(te, bx, by)
+      + (te === '>' ? arrowHeadSvg(P[P.length - 1], P[P.length - 2]) : '')
+      + (ts === '<' ? arrowHeadSvg(P[0], P[1]) : '');
+    const text = [el.label, el.current].filter((s) => s?.trim()).join('  ');
+    if (text) {
+      const { p, anchor } = wireLabelSpot(P[0], P[1], 6);
+      g.appendChild(svgText(p.x, p.y + (anchor === 'start' ? 0 : -8), text, anchor, 'lbl'));
+    }
     return g;
   }
 
@@ -554,7 +898,7 @@ function drawElement(el, selected, ghost = false) {
 }
 
 function renderCanvas() {
-  layerEls.replaceChildren(...state.elements.map((el) => drawElement(el, el.id === selectedId)));
+  layerEls.replaceChildren(...orderedElements().map((el) => drawElement(el, el.id === selectedId)));
   renderOverlay();
 }
 
@@ -562,6 +906,26 @@ function renderOverlay() {
   const items = [];
   const sel = getSel();
   if (settings.alignAssist) items.push(...alignGuides());
+  if (sigPts) {
+    const pts = [...sigPts];
+    const last = pts[pts.length - 1];
+    if (hover && !samePt(hover, last)) {
+      if (hover.x !== last.x && hover.y !== last.y) pts.push({ x: hover.x, y: last.y });
+      pts.push(hover);
+    }
+    const P = pts.map((q) => ({ x: q.x * GRID, y: q.y * GRID }));
+    let ghostSig;
+    if (TYPES[tool]?.highlight && pts.length > 1) {
+      ghostSig = drawElement({
+        type: 'hl', a: pts[0], b: pts[pts.length - 1], via: pts.slice(1, -1), ...clone(TYPES.hl.preset),
+      }, false, true);
+    } else {
+      ghostSig = svgNode('g', { class: 'el ghost-el' });
+      ghostSig.innerHTML = `<polyline points="${P.map((q) => `${q.x},${q.y}`).join(' ')}"/>`
+        + (P.length > 1 ? arrowHeadSvg(P[P.length - 1], P[P.length - 2]) : '');
+    }
+    items.push(ghostSig, svgNode('circle', { class: 'pending-dot', cx: P[0].x, cy: P[0].y, r: 5 }));
+  }
   if (pending && hover && TYPES[tool] && !samePt(pending, hover)) {
     items.push(drawElement({ type: tool, a: pending, b: hover }, false, true));
   }
@@ -588,7 +952,8 @@ const kv = (s) => (/[,=]/.test(s) ? `{${s}}` : s);
 function segSpec(el) {
   const opts = [TYPES[el.type].tikz];
   const l = el.flip ? 'l_' : 'l', a = el.flip ? 'a^' : 'a';
-  if (el.label?.trim())   opts.push(`${l}=` + kv(math(el.label)));
+  // Wire labels are placed as separate nodes, not as circuitikz l= options.
+  if (el.label?.trim() && el.type !== 'wire') opts.push(`${l}=` + kv(math(el.label)));
   if (el.value?.trim())   opts.push(`${a}=` + kv(math(el.value)));
   if (el.current?.trim()) opts.push('i=' + kv(math(el.current)));
   if (el.voltage?.trim()) opts.push('v=' + kv(math(el.voltage)));
@@ -695,6 +1060,11 @@ function elPoints(e) {
       .map((o) => rot90(o, e.rot || 0))
       .map((o) => ({ x: e.a.x + o.x, y: e.a.y + o.y }));
   }
+  if (isBlock(e)) {
+    // Corners, edge midpoints and centre: used for alignment, bounds and fitting.
+    const r = blockRect(e);
+    return [r.x0, e.a.x, r.x1].flatMap((x) => [r.y0, e.a.y, r.y1].map((y) => ({ x, y })));
+  }
   return e.b ? [e.a, e.b] : [e.a];
 }
 
@@ -702,6 +1072,93 @@ function markerTex(kind, p, col = '', k = 1) {
   return kind === '*'
     ? `\\fill${col ? `[${col}]` : ''} ${pt(p)} circle (${cm(DOT_R * k)});`
     : `\\draw[${col ? `${col}, ` : ''}fill=white] ${pt(p)} circle (${cm(RING_R * k)});`;
+}
+
+// Filled arrowhead with its tip at `tip`, pointing away from `from` (TikZ coords).
+function headTex(tip, from, k, o) {
+  const { u, n } = frame(from, tip);
+  const base = along(tip, u, -SIG_HEAD.len * k), w = SIG_HEAD.half * k;
+  return `\\fill${o} ${pt(tip)} -- ${pt(along(base, n, w))} -- ${pt(along(base, n, -w))} -- cycle;`;
+}
+
+function signalTex(el, T, o) {
+  const pts = [el.a, ...(el.via || []), el.b].map(T);
+  const [ts, te] = (el.term || '-').split('-');
+  const n = pts.length, line = pts.slice();
+  // Stop the line inside the head so its round cap doesn't poke out of the tip.
+  if (te === '>') line[n - 1] = along(pts[n - 1], frame(pts[n - 2], pts[n - 1]).u, -SIG_HEAD.len / 2);
+  if (ts === '<') line[0] = along(pts[0], frame(pts[1], pts[0]).u, -SIG_HEAD.len / 2);
+  const out = [`\\draw${o} ${line.map(pt).join(' -- ')};`];
+  if (te === '>') out.push(headTex(pts[n - 1], pts[n - 2], 1, o));
+  if (ts === '<') out.push(headTex(pts[0], pts[1], 1, o));
+  return out;
+}
+
+function wireLabelTex(el, T, col) {
+  const text = el.label?.trim();
+  if (!text) return [];
+  const p0 = T(el.a), p1 = T(el.via?.[0] || el.b);
+  const m = [(p0[0] + p1[0]) / 2, (p0[1] + p1[1]) / 2];
+  const vertical = Math.abs(p0[0] - p1[0]) < 1e-9;
+  const at = vertical ? [m[0] + 0.05, m[1]] : [m[0], m[1] + 0.03];
+  return [`\\node[anchor=${vertical ? 'west' : 'south'}${col ? `, text=${col}` : ''}] at ${pt(at)} {${math(text)}};`];
+}
+
+function blockTex(el, T, usedPics) {
+  const r = blockRect(el);
+  const [X0, Y0] = T({ x: r.x0, y: r.y1 }), [X1, Y1] = T({ x: r.x1, y: r.y0 });
+  const W = X1 - X0, H = Y1 - Y0, C = T(el.a);
+  const col = colorTex(el), round = isRound(el), s = BLOCK_SHADOW;
+  const o = col ? `[${col}]` : '';
+  const out = [];
+  if (el.shadow) {
+    out.push(round
+      ? `\\fill[black!40] ${pt([C[0] + s, C[1] - s])} circle (${fmt(el.w / 2, 4)});`
+      : `\\fill[black!40] ${pt([X0 + s, Y0 - s])} rectangle ${pt([X1 + s, Y1 - s])};`);
+  }
+  const fill = fillTex(el.fill);
+  const corners = !round && el.rounded && 'rounded corners=0.2cm';
+  const shape = round ? `${pt(C)} circle (${fmt(el.w / 2, 4)})` : `${pt([X0, Y0])} rectangle ${pt([X1, Y1])}`;
+  if (el.noBorder) {
+    if (fill) out.push(`\\fill[${[`fill=${fill}`, corners].filter(Boolean).join(', ')}] ${shape};`);
+  } else {
+    const opts = [col, fill && `fill=${fill}`, el.dashed && 'dashed', corners].filter(Boolean);
+    out.push(`\\draw${opts.length ? `[${opts.join(', ')}]` : ''} ${shape};`);
+  }
+
+  const U = ([u, v]) => [X0 + u * W, Y0 + v * H];
+  for (const sk of blockIcon(el)) {
+    const P = sk.p.map(U);
+    out.push(`\\draw${o} ${P.map(pt).join(' -- ')};`);
+    if (sk.arrow) out.push(headTex(P[P.length - 1], P[P.length - 2], ICON_HEAD, o));
+  }
+  if (el.kind === 'inverter') {
+    usedPics.add('fig-mosfet');
+    const pic = PICS['fig-mosfet'];
+    const k = Math.min(1.6, (0.7 * el.h) / (2 * pic.hw * U_CM), (0.8 * el.w) / ((pic.ymax - pic.ymin) * U_CM));
+    out.push(`\\pic[${[col && `color=${col}`, 'rotate=-90', `scale=${fmt(k, 4)}`].filter(Boolean).join(', ')}] at ${pt(C)} {fig-mosfet};`);
+  }
+
+  const node = (p, text, anchor) => `\\node[${['align=center', anchor && `anchor=${anchor}`, col && `text=${col}`]
+    .filter(Boolean).join(', ')}] at ${pt(p)} {${text}};`;
+  const label = el.label?.trim();
+  switch (el.kind) {
+    case 'transform':
+      if (label) out.push(node(U([0.3, 0.7]), label));
+      if (el.label2?.trim()) out.push(node(U([0.7, 0.3]), el.label2.trim()));
+      break;
+    case 'pi': if (label) out.push(node([C[0], Y0 - 0.05], label, 'north')); break;
+    case 'pwm': if (label) out.push(node([C[0], Y1 - 0.05], label, 'north')); break;
+    case 'group': if (label) out.push(node([C[0], Y1 + 0.05], label, 'south')); break;
+    case 'sum':
+      for (const [k, sg] of Object.entries(SUM_SIGNS)) {
+        if (el[k]) out.push(`\\node[anchor=${sg.tex}, inner sep=1pt${col ? `, text=${col}` : ''}] at ${pt(U([sg.u, sg.v]))} {$${el[k]}$};`);
+      }
+      break;
+    case 'inverter': break;
+    default: if (label) out.push(node(C, label));
+  }
+  return out;
 }
 
 function generateTex() {
@@ -723,9 +1180,24 @@ function generateTex() {
       last = null;
     };
     const push = (lines) => body.push(...lines.map((l) => '  ' + l));
-    for (const el of els) {
+    const labels = [];
+    for (const el of orderedElements()) {
       const def = TYPES[el.type];
       const col = colorTex(el);
+      if (def.block) {
+        flush();
+        push(blockTex(el, T, usedPics));
+        continue;
+      }
+      if (def.highlight) {
+        flush();
+        const [r, g, b] = hlRgb(el), w = el.hlWidth;
+        const opts = [`draw={rgb,255:red,${r};green,${g};blue,${b}}`, `line width=${fmt(w, 2)}pt`,
+          `draw opacity=${fmt(el.hlOpacity, 2)}`, 'line cap=round', 'line join=round',
+          el.hlStyle === 'dashed' && `dash pattern=on ${fmt(w * 1.2, 2)}pt off ${fmt(w * 2, 2)}pt`].filter(Boolean);
+        push([`\\draw[${opts.join(', ')}] ${[el.a, ...(el.via || []), el.b].map(P).join(' -- ')};`]);
+        continue;
+      }
       if (def.node) {
         flush();
         const label = el.label?.trim();
@@ -749,8 +1221,14 @@ function generateTex() {
       }
       const A = T(el.a), B = T(el.b);
       const [ts, te] = (el.term || '-').split('-');
-      if (ts) markers.push(markerTex(ts, A, col));
-      if (te) markers.push(markerTex(te, B, col));
+      if (ts === '*' || ts === 'o') markers.push(markerTex(ts, A, col));
+      if (te === '*' || te === 'o') markers.push(markerTex(te, B, col));
+      if (el.type === 'wire') labels.push(...wireLabelTex(el, T, col));
+      if (el.type === 'wire' && (ts === '<' || te === '>')) {
+        flush();
+        push(signalTex(el, T, col ? `[${col}]` : ''));
+        continue;
+      }
       if (def.pic) {
         flush();
         usedPics.add(def.pic);
@@ -776,6 +1254,7 @@ function generateTex() {
       last = el.b;
     }
     flush();
+    body.push(...labels.map((l) => '  ' + l));
     body.push(...markers.map((l) => '  ' + l));
   } else {
     body.push('  % Draw a circuit on the canvas to generate code');
@@ -790,7 +1269,13 @@ function generateTex() {
     body.unshift('  % Component shapes (1 figure unit = 0.05 cm)', '  \\tikzset{', ...defs, '  }');
   }
 
-  const usesSI = els.some((e) => /\\(si|SI|qty|unit|num)\b/.test([e.label, e.value, e.current, e.voltage].join(' ')));
+  const allText = els.map((e) => [e.label, e.label2, e.value, e.current, e.voltage].join(' ')).join(' ');
+  const usesSI = /\\(si|SI|qty|unit|num)\b/.test(allText);
+  const extraPkgs = [
+    ...(usesSI ? ['siunitx'] : []),
+    ...(/\\(text|boldsymbol|dfrac|tfrac)\b/.test(allText) ? ['amsmath'] : []),
+    ...(/\\bm\b/.test(allText) ? ['bm'] : []),
+  ];
   const envOpts = [
     ...(settings.scale !== 1 ? [`scale=${settings.scale}`, 'transform shape'] : []),
     `line width=${settings.lineWidth}pt`,
@@ -800,12 +1285,12 @@ function generateTex() {
   const env = [`\\begin{circuitikz}[${envOpts.join(', ')}]`, ...body, '\\end{circuitikz}'];
 
   if (!settings.fullDoc) {
-    return [`% Preamble: \\usepackage[${settings.style}]{circuitikz}` + (usesSI ? ', \\usepackage{siunitx}' : ''), ...env, ''].join('\n');
+    return [`% Preamble: \\usepackage[${settings.style}]{circuitikz}` + extraPkgs.map((p) => `, \\usepackage{${p}}`).join(''), ...env, ''].join('\n');
   }
   return [
     '\\documentclass[border=10pt]{standalone}',
     `\\usepackage[${settings.style}]{circuitikz}`,
-    ...(usesSI ? ['\\usepackage{siunitx}'] : []),
+    ...extraPkgs.map((p) => `\\usepackage{${p}}`),
     '\\begin{document}',
     ...env,
     '\\end{document}',
@@ -820,8 +1305,13 @@ function renderCode() {
 // ---------------------------------------------------------------- properties panel
 function fieldsFor(el) {
   const def = TYPES[el.type];
+  if (def.block) {
+    if (el.kind === 'transform') return ['label', 'label2'];
+    return el.kind === 'sum' || el.kind === 'inverter' ? [] : ['label'];
+  }
   if (def.node) return el.type === 'ground' ? [] : ['label'];
-  if (el.type === 'wire') return ['current'];
+  if (def.highlight) return [];
+  if (el.type === 'wire') return ['label', 'current'];
   if (el.type === 'open') return ['label', 'voltage'];
   if (def.arrow) return ['label'];
   if (def.pic) return ['label', 'value'];
@@ -854,9 +1344,11 @@ function renderProps() {
   if (fields.length) {
     const note = document.createElement('p');
     note.className = 'muted note';
-    note.textContent = el.type === 'text'
-      ? 'Inserted as-is; use $...$ for math.'
-      : 'Math mode is added automatically unless you type $...$ yourself.';
+    note.textContent = def.block
+      ? 'Inserted as-is; use $...$ for math and \\\\ for a new line.'
+      : el.type === 'text'
+        ? 'Inserted as-is; use $...$ for math.'
+        : 'Math mode is added automatically unless you type $...$ yourself.';
     propsBody.append(note);
   }
 
@@ -864,12 +1356,12 @@ function renderProps() {
     const [name, opt, placeholder] = FIELDS[key];
     const label = document.createElement('label');
     const span = document.createElement('span');
-    span.textContent = def.node ? name : `${name} (${opt})`;
+    span.textContent = def.node || el.type === 'wire' ? name : `${name} (${opt})`;
     const input = document.createElement('input');
     input.type = 'text';
     input.spellcheck = false;
     input.value = el[key] || '';
-    input.placeholder = el.type === 'text' ? 'any LaTeX text' : placeholder;
+    input.placeholder = el.type === 'text' || def.block ? 'any LaTeX text' : placeholder;
     input.dataset.field = key;
     input.addEventListener('focus', () => { fieldSnap = JSON.stringify(state); });
     input.addEventListener('input', () => {
@@ -917,11 +1409,59 @@ function renderProps() {
     propsBody.append(label);
   };
 
-  const colorOptions = Object.entries(COLORS).map(([k, c]) => [k, c.name]);
-  const defName = COLORS[colorKey({ type: el.type })].name;
-  addSelect('color', 'Colour', [['', `Default (${defName})`], ...colorOptions]);
-  if (!def.node && !def.arrow) addSelect('term', 'Terminals', TERMINALS.map((t) => [t, t || 'none']));
-  if (!def.node && el.type !== 'wire') addCheck('flip', 'Label on the other side');
+  const addNum = (key, text, min, max, step, after) => {
+    const label = document.createElement('label');
+    const span = document.createElement('span');
+    span.textContent = text;
+    const input = document.createElement('input');
+    Object.assign(input, { type: 'number', min, max, step, value: el[key] });
+    input.addEventListener('focus', () => { fieldSnap = JSON.stringify(state); });
+    input.addEventListener('input', () => {
+      const v = parseFloat(input.value);
+      if (!Number.isFinite(v) || v < min || v > max) return;
+      if (fieldSnap) { pushHistory(fieldSnap); fieldSnap = null; }
+      el[key] = v;
+      after?.();
+      renderCanvas();
+      renderCode();
+      save();
+    });
+    label.append(span, input);
+    propsBody.append(label);
+  };
+
+  if (def.highlight) {
+    addSelect('hlColor', 'Colour', Object.entries(HL_COLORS).map(([k, c]) => [k, c.name]));
+    addNum('hlWidth', 'Width (pt)', 0.5, 40, 0.5);
+    addSelect('hlStyle', 'Style', [['solid', 'Solid'], ['dashed', 'Dashed']]);
+    addNum('hlOpacity', 'Opacity (0–1)', 0.05, 1, 0.05);
+  } else {
+    const colorOptions = Object.entries(COLORS).map(([k, c]) => [k, c.name]);
+    const defName = COLORS[colorKey({ type: el.type })].name;
+    addSelect('color', 'Colour', [['', `Default (${defName})`], ...colorOptions]);
+  }
+  if (!def.node && !def.arrow && !def.highlight) {
+    const terms = el.type === 'wire' ? WIRE_TERMINALS : TERMINALS;
+    addSelect('term', el.type === 'wire' ? 'Ends' : 'Terminals', terms.map((t) => [t, t || 'none']));
+  }
+  if (def.block) {
+    const syncRound = () => { if (isRound(el)) el.h = el.w; };
+    addNum('w', isRound(el) ? 'Diameter (cm)' : 'Width (cm)', 0.25, 40, 0.25, syncRound);
+    if (!isRound(el)) addNum('h', 'Height (cm)', 0.25, 40, 0.25);
+    addSelect('fill', 'Fill', Object.entries(FILLS).map(([k, f]) => [k, f.name]));
+    if (el.kind === 'sum') {
+      addSelect('sumStyle', 'Style', Object.entries(SUM_STYLES));
+      const signs = [['', 'none'], ['+', '+'], ['-', '−']];
+      addSelect('signW', 'Sign (left)', signs);
+      addSelect('signN', 'Sign (top)', signs);
+      addSelect('signS', 'Sign (bottom)', signs);
+    }
+    addCheck('shadow', 'Drop shadow');
+    addCheck('noBorder', 'No border');
+    addCheck('dashed', 'Dashed border');
+    if (!isRound(el)) addCheck('rounded', 'Rounded corners');
+  }
+  if (!def.node && !def.highlight && el.type !== 'wire') addCheck('flip', 'Label on the other side');
   if (def.mirror) addCheck('mirror', 'Mirror (gate on the other side)');
   if (canResize(el)) {
     const label = document.createElement('label');
@@ -1035,7 +1575,10 @@ function nextLabel(prefix) {
 function addElement(partial) {
   snapshot();
   const def = TYPES[partial.type];
-  const el = { id: state.nextId++, label: '', value: '', current: '', voltage: '', term: '', ...partial };
+  const el = {
+    id: state.nextId++, label: '', value: '', current: '', voltage: '', term: '',
+    ...(def.preset ? clone(def.preset) : {}), ...partial,
+  };
   if (!el.label && def.defLabel) el.label = def.defLabel;
   if (!el.label && def.prefix && settings.autoLabel) el.label = nextLabel(def.prefix);
   if (def.arrow && !el.color) el.color = 'green';
@@ -1116,10 +1659,12 @@ const clone = (v) => JSON.parse(JSON.stringify(v));
 
 // Wires whose ends sit on any of `pts` (terminals of the part about to move).
 function attachedWires(el, pts) {
+  // Blocks have no fixed terminals: any wire end on or inside the block counts.
+  const touches = isBlock(el) ? (q) => insideBlock(el, q) : (q) => pts.some((p) => samePt(p, q));
   const list = [];
   for (const w of state.elements) {
     if (w.type !== 'wire' || w.id === el.id) continue;
-    const ends = ['a', 'b'].filter((k) => pts.some((q) => samePt(q, w[k])));
+    const ends = ['a', 'b'].filter((k) => touches(w[k]));
     if (ends.length) list.push({ w, ends, orig: clone({ a: w.a, b: w.b, via: w.via }) });
   }
   return list;
@@ -1212,6 +1757,7 @@ function loadTemplate(name) {
     const isNode = TYPES[type].node;
     state.elements.push({
       id: state.nextId++, type, label: '', value: '', current: '', voltage: '', term: '',
+      ...(TYPES[type].preset ? clone(TYPES[type].preset) : {}),
       a: { x: a[0], y: a[1] },
       ...(isNode ? {} : { b: { x: b[0], y: b[1] } }),
       ...(isNode ? b : extra),
@@ -1237,15 +1783,43 @@ const HINTS = {
   bipole: 'Click the start point, then the end point. Right-click / Esc cancels.',
   wire: 'Click points to draw connected wires. Right-click / Esc to stop.',
   xfmr: 'Click the top primary terminal; terminals sit 1 cm apart horizontally and 3 cm vertically. Shift+R rotates.',
+  signal: 'Click to start, click to add corners (right angles are added for you); double-click, Enter or right-click finishes with an arrow. Esc cancels.',
+  highlight: 'Click along the current path (right angles are added for you); double-click, Enter or right-click finishes. Set colour, width, dashes and opacity in Properties. Alt+click selects a highlight lying under a wire.',
+  block: 'Click to place the block centre. Set size, fill and labels in Properties; moving it drags connected signals along.',
 };
+
+function addSignalPoint(p) {
+  if (!sigPts) {
+    sigPts = [p];
+  } else {
+    const last = sigPts[sigPts.length - 1];
+    if (samePt(p, last)) { finishSignal(); return; }
+    if (p.x !== last.x && p.y !== last.y) sigPts.push({ x: p.x, y: last.y });
+    sigPts.push(p);
+  }
+  renderOverlay();
+}
+
+function finishSignal() {
+  const pts = sigPts ? simplify(sigPts) : [];
+  sigPts = null;
+  if (pts.length >= 2) {
+    const via = pts.length > 2 ? { via: pts.slice(1, -1) } : {};
+    if (TYPES[tool].highlight) addElement({ type: 'hl', a: pts[0], b: pts[pts.length - 1], ...via });
+    else addElement({ type: 'wire', a: pts[0], b: pts[pts.length - 1], term: '->', ...via });
+  }
+  renderOverlay();
+}
 
 function setTool(t) {
   tool = t;
   pending = null;
+  sigPts = null;
   document.querySelectorAll('.tool').forEach((b) => b.classList.toggle('active', b.dataset.tool === t));
   svg.classList.toggle('placing', t !== 'select');
   $('status-tool').textContent = t === 'select' ? 'Select' : TYPES[t].name;
   $('status-hint').textContent = t === 'select' ? HINTS.select : t === 'wire' ? HINTS.wire
+    : TYPES[t].signalTool ? HINTS.signal : TYPES[t].highlight ? HINTS.highlight : TYPES[t].block ? HINTS.block
     : TYPES[t].xfmr ? HINTS.xfmr : TYPES[t].node ? HINTS.node : HINTS.bipole;
   renderOverlay();
 }
@@ -1263,6 +1837,16 @@ function iconSvg(t) {
     const col = COLORS.green.css;
     g.innerHTML = `<line x1="-26" y1="0" x2="12" y2="0" style="stroke:${col}"/>`
       + `<path class="nostroke" style="fill:${col}" d="M26 0 L9 -4.6 L9 4.6 Z"/>`;
+  } else if (TYPES[t].highlight) {
+    g.innerHTML = '<polyline points="-26,8 -2,8 -2,-6 26,-6" style="stroke:rgb(232,120,100);stroke-width:9px;'
+      + 'stroke-opacity:0.6;stroke-linecap:round;stroke-linejoin:round"/><polyline points="-26,8 -2,8 -2,-6 26,-6"/>';
+  } else if (TYPES[t].signalTool) {
+    g.innerHTML = '<polyline points="-26,8 -2,8 -2,-6 16,-6"/>' + arrowHeadSvg({ x: 26, y: -6 }, { x: 0, y: -6 });
+  } else if (TYPES[t].block) {
+    const p = TYPES[t].preset;
+    const inner = svgNode('g', { transform: `scale(${fmt(Math.min(52 / (p.w * GRID), 32 / (p.h * GRID), 1.6))})` });
+    drawBlock({ ...clone(p), type: t, a: { x: 0, y: 0 } }, inner, false);
+    g.appendChild(inner);
   } else if (TYPES[t].pic) {
     // Switches are shown upright, as they are usually drawn.
     const pic = PICS[TYPES[t].pic];
@@ -1360,8 +1944,11 @@ scroller.addEventListener('wheel', (e) => {
 // ---------------------------------------------------------------- mouse & keyboard
 // Terminal points other parts can line up with; the element being dragged is left out.
 function alignAnchors() {
-  const skip = new Set(drag ? [selectedId, ...drag.attached.map((at) => at.w.id)] : []);
+  const skip = new Set(drag
+    ? [selectedId, ...drag.attached.map((at) => at.w.id), ...drag.carried.map((c) => c.e.id)]
+    : []);
   const pts = state.elements.filter((e) => !skip.has(e.id)).flatMap(elPoints);
+  if (sigPts) pts.push(...sigPts);
   if (pending) pts.push(pending);
   return pts;
 }
@@ -1448,9 +2035,16 @@ function startDrag(mode, p) {
   if (el.type === 'wire' && mode !== 'move' && el.via) {
     attached.push({ w: el, ends: [mode], orig: clone({ a: el.a, b: el.b, via: el.via }) });
   }
+  // A group box carries every non-wire element that lies fully inside it.
+  const carried = mode === 'move' && el.kind === 'group'
+    ? state.elements
+      .filter((e) => e !== el && e.type !== 'wire' && elPoints(e).every((q) => insideBlock(el, q)))
+      .map((e) => ({ e, orig: clone({ a: e.a, b: e.b, via: e.via }) }))
+    : [];
   drag = {
     mode, start: p, a: { ...el.a }, b: el.b ? { ...el.b } : null, via: el.via ? clone(el.via) : null,
-    attached, snap: JSON.stringify(state), moved: false,
+    attached, carried, snap: JSON.stringify(state), moved: false,
+    bounds: [...elPoints(el), ...(el.via || []), ...carried.flatMap((c) => elPoints(c.e))],
   };
 }
 
@@ -1463,6 +2057,17 @@ svg.addEventListener('mousedown', (e) => {
     const handle = e.target.closest('[data-handle]');
     if (handle && getSel()) { startDrag(handle.dataset.handle, p); return; }
     const g = e.target.closest('[data-id]');
+    if (g && e.altKey) {
+      // Alt+click cycles through overlapping parts, e.g. a highlight lying under a wire.
+      const ids = [...new Set(document.elementsFromPoint(e.clientX, e.clientY)
+        .map((n) => n.closest('[data-id]')).filter(Boolean).map((n) => Number(n.dataset.id)))];
+      if (ids.length > 1) {
+        const i = ids.indexOf(selectedId);
+        select(ids[i < 0 ? 1 : (i + 1) % ids.length]);
+        startDrag('move', p);
+        return;
+      }
+    }
     if (g) {
       select(Number(g.dataset.id));
       startDrag('move', p);
@@ -1472,6 +2077,7 @@ svg.addEventListener('mousedown', (e) => {
     return;
   }
 
+  if (TYPES[tool].signalTool || TYPES[tool].highlight) { addSignalPoint(p); return; }
   if (TYPES[tool].node) { addElement({ type: tool, a: p }); return; }
   if (!pending) { pending = p; renderOverlay(); return; }
   if (samePt(pending, p)) return;
@@ -1497,6 +2103,7 @@ svg.addEventListener('mouseleave', () => {
 
 svg.addEventListener('contextmenu', (e) => {
   e.preventDefault();
+  if (sigPts) { finishSignal(); return; }
   pending = null;
   renderOverlay();
 });
@@ -1508,9 +2115,8 @@ window.addEventListener('mousemove', (e) => {
   const p = eventToGrid(e);
   let na = el.a, nb = el.b, map;
   if (drag.mode === 'move') {
-    const own = [drag.a, ...(drag.b ? [drag.b] : []), ...(drag.via || [])];
-    const ddx = Math.max(p.x - drag.start.x, -Math.min(...own.map((q) => q.x)));
-    const ddy = Math.max(p.y - drag.start.y, -Math.min(...own.map((q) => q.y)));
+    const ddx = Math.max(p.x - drag.start.x, -Math.min(...drag.bounds.map((q) => q.x)));
+    const ddy = Math.max(p.y - drag.start.y, -Math.min(...drag.bounds.map((q) => q.y)));
     map = (q) => ({ x: q.x + ddx, y: q.y + ddy });
     na = map(drag.a);
     if (drag.b) nb = map(drag.b);
@@ -1525,6 +2131,11 @@ window.addEventListener('mousemove', (e) => {
   el.a = na;
   if (nb) el.b = nb;
   if (drag.mode === 'move' && drag.via) el.via = drag.via.map(map);
+  for (const { e: c, orig } of drag.carried) {
+    c.a = map(orig.a);
+    if (orig.b) c.b = map(orig.b);
+    if (orig.via) c.via = orig.via.map(map);
+  }
   followWires(drag.attached, map);
   renderCanvas();
   renderCode();
@@ -1574,8 +2185,13 @@ document.addEventListener('keydown', (e) => {
     resizeSelected(e.key === ']' ? 0.1 : -0.1);
     return;
   }
+  if (e.key === 'Enter' && sigPts) {
+    finishSignal();
+    return;
+  }
   if (e.key === 'Escape') {
-    if (pending) { pending = null; renderOverlay(); }
+    if (sigPts) { sigPts = null; renderOverlay(); }
+    else if (pending) { pending = null; renderOverlay(); }
     else { setTool('select'); select(null); }
     return;
   }
@@ -1685,7 +2301,7 @@ $('btn-download').addEventListener('click', () => {
 
 // ---------------------------------------------------------------- diagram export
 const PT_PER_PX = 72 / 2.54 / GRID;
-const STYLE_PROPS = ['fill', 'stroke', 'stroke-width', 'stroke-linecap', 'stroke-linejoin', 'stroke-dasharray',
+const STYLE_PROPS = ['fill', 'stroke', 'stroke-width', 'stroke-linecap', 'stroke-linejoin', 'stroke-dasharray', 'stroke-opacity', 'opacity',
   'font-family', 'font-size', 'font-style', 'font-weight', 'text-anchor', 'dominant-baseline'];
 
 function downloadBlob(blob, name) {
@@ -1706,7 +2322,7 @@ function renderForExport() {
   const host = svgNode('svg', { width: CANVAS_W, height: CANVAS_H });
   host.setAttribute('style', 'position:absolute;left:-100000px;top:0');
   const layer = svgNode('g');
-  for (const el of state.elements) layer.appendChild(drawElement(el, false));
+  for (const el of orderedElements()) layer.appendChild(drawElement(el, false));
   host.appendChild(layer);
   document.body.appendChild(host);
   layer.querySelectorAll('.hit, .ghost').forEach((n) => n.remove());
@@ -1754,6 +2370,7 @@ const PDF_FONTS = ['Times-Italic', 'Times-Roman', 'Helvetica-Bold', 'Helvetica',
 const SYMBOL_CHARS = {
   'Ω': 'W', 'ω': 'w', 'α': 'a', 'β': 'b', 'π': 'p', 'θ': 'q', 'φ': 'f', 'Δ': 'D', 'τ': 't',
   '∞': '\xA5', '→': '\xAE', '←': '\xAC', '↑': '\xAD', '↓': '\xAF',
+  '√': '\xD6', 'ψ': 'y', 'Ψ': 'Y',
 };
 const n3 = (v) => fmt(v, 3);
 
@@ -1884,11 +2501,17 @@ function pdfContent(r) {
   const k = PT_PER_PX;
   const ops = [`${n3(k)} 0 0 ${n3(-k)} ${n3(-r.x * k)} ${n3((r.y + r.h) * k)} cm`];
   const CAP = { butt: 0, round: 1, square: 2 }, JOIN = { miter: 0, round: 1, bevel: 2 };
+  const alphas = new Map(); // opacity -> ExtGState name
   for (const node of r.layer.querySelectorAll('line, path, rect, circle, ellipse, polyline, polygon, text')) {
     const cs = getComputedStyle(node);
     if (cs.display === 'none' || cs.visibility === 'hidden') continue;
     const m = node.getCTM();
     ops.push('q', `${n3(m.a)} ${n3(m.b)} ${n3(m.c)} ${n3(m.d)} ${n3(m.e)} ${n3(m.f)} cm`);
+    const alpha = n3((parseFloat(cs.opacity) || 1) * (parseFloat(cs.strokeOpacity) || 1));
+    if (alpha !== '1') {
+      if (!alphas.has(alpha)) alphas.set(alpha, `GS${alphas.size + 1}`);
+      ops.push(`/${alphas.get(alpha)} gs`);
+    }
     if (node.tagName === 'text') {
       ops.push(...textOps(node, cs));
     } else {
@@ -1906,16 +2529,18 @@ function pdfContent(r) {
     }
     ops.push('Q');
   }
-  return ops.join('\n');
+  return { content: ops.join('\n'), alphas };
 }
 
 function buildPdf(r) {
-  const content = pdfContent(r);
+  const { content, alphas } = pdfContent(r);
+  const gs = alphas.size
+    ? ` /ExtGState << ${[...alphas].map(([a, name]) => `/${name} << /CA ${a} /ca ${a} >>`).join(' ')} >>` : '';
   const objs = [null,
     '<< /Type /Catalog /Pages 2 0 R >>',
     '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
     `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${n3(r.w * PT_PER_PX)} ${n3(r.h * PT_PER_PX)}] `
-      + `/Resources << /Font << ${PDF_FONTS.map((_, j) => `/F${j + 1} ${5 + j} 0 R`).join(' ')} >> >> /Contents 4 0 R >>`,
+      + `/Resources << /Font << ${PDF_FONTS.map((_, j) => `/F${j + 1} ${5 + j} 0 R`).join(' ')} >>${gs} >> /Contents 4 0 R >>`,
     `<< /Length ${content.length} >>\nstream\n${content}\nendstream`,
     ...PDF_FONTS.map((f) => `<< /Type /Font /Subtype /Type1 /BaseFont /${f}${f === 'Symbol' ? '' : ' /Encoding /WinAnsiEncoding'} >>`),
   ];
@@ -1967,6 +2592,21 @@ function load() {
 
   const isPt = (p) => p && Number.isFinite(p.x) && Number.isFinite(p.y) && p.x >= 0 && p.y >= 0;
   const str = (v) => (typeof v === 'string' ? v : '');
+  const sign = (v) => (v === '+' || v === '-' ? v : '');
+  const size = (v, d) => (typeof v === 'number' && v >= 0.25 && v <= 40 ? v : d);
+  const blockFields = (e) => {
+    const p = TYPES[e.type].preset;
+    return {
+      kind: p.kind, ...(p.shape ? { shape: p.shape } : {}),
+      w: size(e.w, p.w), h: p.shape === 'circle' ? size(e.w, p.w) : size(e.h, p.h),
+      fill: e.fill in FILLS ? e.fill : p.fill,
+      shadow: e.shadow === true, dashed: e.dashed === true, rounded: e.rounded === true, noBorder: e.noBorder === true,
+      label2: str(e.label2),
+      ...(p.kind === 'sum'
+        ? { sumStyle: e.sumStyle in SUM_STYLES ? e.sumStyle : 'plus', signW: sign(e.signW), signN: sign(e.signN), signS: sign(e.signS) }
+        : {}),
+    };
+  };
   if (Array.isArray(data.state?.elements)) {
     state.elements = data.state.elements
       .filter((e) => e && Number.isInteger(e.id) && TYPES[e.type] && isPt(e.a) && (TYPES[e.type].node || isPt(e.b)))
@@ -1974,13 +2614,20 @@ function load() {
         id: e.id, type: e.type, a: { x: e.a.x, y: e.a.y },
         ...(TYPES[e.type].node ? {} : { b: { x: e.b.x, y: e.b.y } }),
         label: str(e.label), value: str(e.value), current: str(e.current), voltage: str(e.voltage),
-        term: TERMINALS.includes(e.term) ? e.term : '',
+        term: WIRE_TERMINALS.includes(e.term) ? e.term : '',
         flip: e.flip === true, mirror: e.mirror === true,
         ...([1, 2, 3].includes(e.rot) ? { rot: e.rot } : {}),
         ...(typeof e.size === 'number' && e.size >= SIZE_MIN && e.size <= SIZE_MAX && e.size !== 1 ? { size: e.size } : {}),
-        ...(e.type === 'wire' && Array.isArray(e.via) && e.via.length && e.via.length <= 8 && e.via.every(isPt)
+        ...((e.type === 'wire' || e.type === 'hl') && Array.isArray(e.via) && e.via.length && e.via.length <= 32 && e.via.every(isPt)
           ? { via: e.via.map((q) => ({ x: q.x, y: q.y })) } : {}),
         ...(e.color in COLORS ? { color: e.color } : {}),
+        ...(TYPES[e.type].block ? blockFields(e) : {}),
+        ...(TYPES[e.type].highlight ? {
+          hlColor: e.hlColor in HL_COLORS ? e.hlColor : 'salmon',
+          hlWidth: typeof e.hlWidth === 'number' && e.hlWidth >= 0.5 && e.hlWidth <= 40 ? e.hlWidth : 5,
+          hlStyle: e.hlStyle === 'dashed' ? 'dashed' : 'solid',
+          hlOpacity: typeof e.hlOpacity === 'number' && e.hlOpacity >= 0.05 && e.hlOpacity <= 1 ? e.hlOpacity : 0.6,
+        } : {}),
       }));
     state.nextId = Math.max(0, ...state.elements.map((e) => e.id)) + 1;
   }
