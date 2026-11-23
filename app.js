@@ -45,6 +45,7 @@ const TYPES = {
   sV:        { name: 'AC source',           pic: 'fig-acsource', prefix: 'V' },
   mosd:      { name: 'MOSFET + diode',      pic: 'fig-mosfet',   mirror: true, key: 'm' },
   bisw:      { name: 'Bidirectional switch', pic: 'fig-biswitch', mirror: true, key: 'b' },
+  bdscd:     { name: 'BDS Common Drain',    pic: 'fig-bds-cd',   mirror: true },
   xfmr:      { name: 'Transformer',         node: true, xfmr: true, defLabel: 'n:1', key: 'x' },
   varrow:    { name: 'Arrow',               arrow: true, key: 'a' },
   cV:        { name: 'Dependent V source',  tikz: 'cV', prefix: 'V' },
@@ -126,7 +127,7 @@ const ICON_HEAD = 0.55;               // arrowheads inside block icons, relative
 
 const PALETTE = [
   { title: 'Tools',            items: ['select', 'wire', 'hl', 'varrow', 'signal'] },
-  { title: 'Power electronics', items: ['mosd', 'bisw', 'xfmr', 'D', 'zD', 'leD'] },
+  { title: 'Power electronics', items: ['mosd', 'bisw', 'bdscd', 'xfmr', 'D', 'zD', 'leD'] },
   { title: 'Passive',          items: ['R', 'vR', 'C', 'L', 'fuse'] },
   { title: 'Sources',          items: ['V', 'I', 'sV', 'battery', 'cV', 'cI'] },
   { title: 'Switches & meters', items: ['nos', 'ncs', 'ammeter', 'voltmeter'] },
@@ -398,6 +399,9 @@ function mapPrims(prims, f, swapRadii = false) {
 }
 const shiftFig = (prims, dy) => mapPrims(prims, ([x, y]) => [x, y + dy]);
 const flipFig = (prims) => mapPrims(prims, ([x, y]) => [x, -y]);
+const scaleFig = (prims, k) => mapPrims(prims, ([x, y]) => [x * k, y * k]).map((q) => ({
+  ...q, ...(q.r ? { r: q.r * k } : {}), ...(q.rx ? { rx: q.rx * k, ry: q.ry * k } : {}),
+}));
 // Drawing frame (start terminal on top) -> bipole frame, centring the axis extent at cy.
 const fromFig = (prims, cy) => mapPrims(prims, ([x, y]) => [-(y - cy), x], true);
 const rect = (x, y, w, h) => [[x, y], [x + w, y], [x + w, y + h], [x, y + h]];
@@ -416,8 +420,17 @@ function picShape(prims) {
   return { prims, hw, ymin, ymax };
 }
 
+const MOSFET_PIC = picShape(fromFig(MOSFET_FIG, -0.6235));
+
+// Two mirrored MOSFETs joined drain to drain, each scaled to fill half of a 2 cm span.
+const BDS_CD_HALF = flipFig(scaleFig(MOSFET_PIC.prims, 10 / MOSFET_PIC.hw));
+
 const PICS = {
-  'fig-mosfet': picShape(fromFig(MOSFET_FIG, -0.6235)),
+  'fig-mosfet': MOSFET_PIC,
+  'fig-bds-cd': picShape([
+    ...mapPrims(BDS_CD_HALF, ([x, y]) => [x + 10, y]),
+    ...mapPrims(BDS_CD_HALF, ([x, y]) => [-x - 10, y]),
+  ]),
   'fig-biswitch': picShape(fromFig([
     ...shiftFig(MOSFET_FIG, 9.656),
     ...shiftFig(flipFig(MOSFET_FIG), -9.656),
