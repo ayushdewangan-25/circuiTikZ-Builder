@@ -20,8 +20,7 @@ const COLORS = {
   brown:  { name: 'Brown',  css: 'rgb(191,128,64)',    tex: 'brown' },
 };
 function colorKey(el) {
-  if (COLORS[el.color]) return el.color;
-  return TYPES[el.type].arrow ? 'green' : 'black';
+  return COLORS[el.color] ? el.color : 'black';
 }
 const colorTex = (el) => COLORS[colorKey(el)].tex;
 
@@ -62,15 +61,11 @@ const TYPES = {
   ground:    { name: 'Ground',              tikz: 'ground', node: true, key: 'g' },
   circ:      { name: 'Junction dot',        tikz: 'circ',   node: true, key: 'n' },
   ocirc:     { name: 'Open terminal',       tikz: 'ocirc',  node: true },
-  vcc:       { name: 'VCC',                 tikz: 'vcc',    node: true, defLabel: 'V_{CC}' },
-  vee:       { name: 'VEE',                 tikz: 'vee',    node: true, defLabel: 'V_{EE}' },
   text:      { name: 'Text label',          tikz: null,     node: true, key: 't', defLabel: 'Label' },
   // ---- control block diagrams (blocks are placed by their centre; size in cm)
   signal:    { name: 'Signal arrow',        signalTool: true, key: 'q' },
   blk:       { name: 'Block',               node: true, block: true, key: 'k',
                preset: { kind: 'text', w: 1.5, h: 1, fill: 'gray', shadow: true, label: 'Block' } },
-  pid:       { name: 'PID block',           node: true, block: true,
-               preset: { kind: 'text', w: 1, h: 0.5, fill: 'lavender', shadow: true, label: 'PID' } },
   tblk:      { name: 'Transform block',     node: true, block: true,
                preset: { kind: 'transform', w: 1.25, h: 1.25, fill: 'yellow', shadow: true, label: '$dq$', label2: '$\\alpha\\beta$' } },
   piblk:     { name: 'PI block (icon)',     node: true, block: true,
@@ -136,8 +131,8 @@ const PALETTE = [
   { title: 'Sources',          items: ['V', 'I', 'sV', 'battery', 'cV', 'cI'] },
   { title: 'Semiconductors',   items: ['D', 'zD', 'leD'] },
   { title: 'Switches & meters', items: ['nos', 'ncs', 'ammeter', 'voltmeter'] },
-  { title: 'Nodes & labels',   items: ['ground', 'circ', 'ocirc', 'vcc', 'vee', 'text', 'open'] },
-  { title: 'Control blocks',   items: ['signal', 'blk', 'pid', 'tblk', 'piblk', 'mult', 'sum', 'pwm', 'inv', 'motor', 'group'] },
+  { title: 'Nodes & labels',   items: ['ground', 'circ', 'ocirc', 'text', 'open'] },
+  { title: 'Control blocks',   items: ['signal', 'blk', 'tblk', 'piblk', 'mult', 'sum', 'pwm', 'inv', 'motor', 'group'] },
 ];
 
 const FIELDS = {
@@ -255,18 +250,19 @@ TEMPLATES.ctrlsps = [
 ];
 
 // Field-oriented control of an induction machine.
+const PID = { w: 1, h: 0.5, fill: 'lavender', label: 'PID' };
 TEMPLATES.foc = [
   ['text', [0.35, 1], { label: '$\\omega_\\mathrm{m}^*$' }],
   SIG([[0.75, 1], [1.5, 1]]),
   ['sum', [1.75, 1], { sumStyle: 'plain' }],
   SIG([[2, 1], [2.5, 1]]),
-  ['pid', [3, 1]],
+  ['blk', [3, 1], PID],
   SIG([[3.5, 1], [4.25, 1]], { label: 'T_\\mathrm{m}^*' }),
   ['tblk', [4.75, 1], { w: 1, h: 1, label: '$T_\\mathrm{m}$', label2: '$i_{\\mathrm{s}q}$' }],
   SIG([[5.25, 1], [6.5, 1]], { label: 'i_{\\mathrm{s}q}^*' }),
   ['sum', [6.75, 1], { sumStyle: 'plain' }],
   SIG([[7, 1], [7.75, 1]]),
-  ['pid', [8.25, 1]],
+  ['blk', [8.25, 1], PID],
   SIG([[8.75, 1], [9.75, 1]], { label: 'v_q^*' }),
   ['text', [3.05, 2.25], { label: '$|\\psi_\\mathrm{r}|^*$' }],
   SIG([[3.75, 2.25], [4.25, 2.25]]),
@@ -274,7 +270,7 @@ TEMPLATES.foc = [
   SIG([[5.25, 2.25], [6, 2.25]], { label: 'i_{\\mathrm{s}d}^*' }),
   ['sum', [6.25, 2.25], { sumStyle: 'plain' }],
   SIG([[6.5, 2.25], [7.75, 2.25]]),
-  ['pid', [8.25, 2.25]],
+  ['blk', [8.25, 2.25], PID],
   SIG([[8.75, 2.25], [9.75, 2.25]], { label: 'v_d^*' }),
   ['tblk', [10.25, 1.625], { w: 1, h: 2, label: '$dq$', label2: '$\\alpha\\beta$' }],
   SIG([[10.75, 1], [11.75, 1]], { label: 'v_\\alpha^*' }),
@@ -546,8 +542,6 @@ function nodeSymbol(type) {
     case 'ground': return '<path d="M0 0 V10 M-12 10 H12 M-7 15 H7 M-3 20 H3"/>';
     case 'circ':   return `<circle class="fill nostroke" r="${DOT_R * PX}"/>`;
     case 'ocirc':  return `<circle class="hollow" r="${RING_R * PX}"/>`;
-    case 'vcc':    return '<path d="M0 0 V-16 M-6 -10 L0 -16 L6 -10"/>';
-    case 'vee':    return '<path d="M0 0 V16 M-6 10 L0 16 L6 10"/>';
     case 'text':   return '<circle class="ghost" r="3"/>';
     default:       return '';
   }
@@ -802,8 +796,7 @@ function drawElement(el, selected, ghost = false) {
     const inner = svgNode('g', { transform: `translate(${x} ${y}) rotate(${90 * (el.rot || 0)}) scale(${k})` });
     inner.innerHTML = '<circle class="hit" r="14"/>' + nodeSymbol(el.type);
     g.appendChild(inner);
-    const pos = { vcc: [0, -26, 'middle'], vee: [0, 30, 'middle'], circ: [0, -14, 'middle'],
-                  ocirc: [0, -14, 'middle'], text: [0, 0, 'middle'] }[el.type];
+    const pos = { circ: [0, -14, 'middle'], ocirc: [0, -14, 'middle'], text: [0, 0, 'middle'] }[el.type];
     if (pos && el.label) {
       const t = svgText(x + pos[0] * k, y + pos[1] * k, el.label, pos[2], el.type === 'text' ? 'lbl plain' : 'lbl');
       if (el.type === 'text' && k !== 1) t.style.fontSize = `${15 * k}px`;
@@ -827,11 +820,12 @@ function drawElement(el, selected, ghost = false) {
 
   if (def.arrow) {
     const k = elSize(el);
-    const L = ARROW_HEAD.len * PX * k, W = ARROW_HEAD.half * PX * k;
-    const stemEnd = h - (ARROW_HEAD.len - ARROW_HEAD.overlap) * PX * k;
-    inner.innerHTML = `<line class="hit" x1="${-h}" y1="0" x2="${h}" y2="0"/>`
-      + `<line x1="${-h}" y1="0" x2="${stemEnd}" y2="0"/>`
-      + `<path class="fill nostroke" d="M${h} 0 L${h - L} ${-W} L${h - L} ${W} Z"/>`;
+    const { fill, stem, heads } = arrowParts(el, [-h, 0], [h, 0], PX * k);
+    const xy = (pts) => pts.map((q) => q.map((v) => fmt(v)).join(',')).join(' ');
+    inner.innerHTML = `<line class="hit" x1="${-h}" y1="0" x2="${h}" y2="0"/><polyline points="${xy(stem)}"/>`
+      + heads.map((pts) => (fill
+        ? `<polygon class="fill nostroke" points="${xy(pts)}"/>`
+        : `<polyline points="${xy(pts)}"/>`)).join('');
     if (el.label) {
       const off = (ARROW_HEAD.half * k + 3) * PX + pad;
       g.appendChild(svgText(mx + sg * nx * off, my + sg * ny * off, el.label, anchorFor(sg * nx), 'lbl'));
@@ -1011,16 +1005,46 @@ function picTex(el, A, B) {
   return out;
 }
 
+// Arrow end shapes in figure units: tip at the origin pointing along +x; the stem stops `back` short of the tip.
+const ARROW_ENDS = (() => {
+  const L = ARROW_HEAD.len, W = ARROW_HEAD.half;
+  return {
+    tri:     { name: 'Filled triangle', fill: true, back: L - ARROW_HEAD.overlap, pts: [[0, 0], [-L, W], [-L, -W]] },
+    stealth: { name: 'Stealth', fill: true, back: 0.6 * L,
+               pts: [[0, 0], [-1.15 * L, 1.35 * W], [-0.65 * L, 0], [-1.15 * L, -1.35 * W]] },
+    open:    { name: 'Open', fill: false, back: 0, pts: [[-L, 1.3 * W], [0, 0], [-L, -1.3 * W]] },
+  };
+})();
+const ARROW_SIDES = { end: 'At the end', start: 'At the start', both: 'Both ends' };
+
+// Stem and head outlines of an arrow from A to B ([x, y] points); `unit` = length of one figure unit.
+function arrowParts(el, A, B, unit) {
+  const shape = ARROW_ENDS[el.arrowHead] || ARROW_ENDS.tri;
+  const side = el.arrowEnds in ARROW_SIDES ? el.arrowEnds : 'end';
+  const len = Math.hypot(B[0] - A[0], B[1] - A[1]) || 1;
+  const u = [(B[0] - A[0]) / len, (B[1] - A[1]) / len];
+  const head = (tip, d) => shape.pts.map(([a, c]) =>
+    [tip[0] + (a * d[0] - c * d[1]) * unit, tip[1] + (a * d[1] + c * d[0]) * unit]);
+  const atEnd = side !== 'start', atStart = side !== 'end';
+  const s0 = atStart ? shape.back * unit : 0, s1 = atEnd ? shape.back * unit : 0;
+  return {
+    fill: shape.fill,
+    stem: [[A[0] + u[0] * s0, A[1] + u[1] * s0], [B[0] - u[0] * s1, B[1] - u[1] * s1]],
+    heads: [atEnd && head(B, u), atStart && head(A, [-u[0], -u[1]])].filter(Boolean),
+  };
+}
+
 function arrowTex(el, A, B) {
   const col = colorTex(el);
   const o = col ? `[${col}]` : '';
-  const { u, n, m } = frame(A, B);
+  const { n, m } = frame(A, B);
   const k = elSize(el);
-  const base = along(B, u, -ARROW_HEAD.len * U_CM * k);
-  const w = ARROW_HEAD.half * U_CM * k;
+  const { fill, stem, heads } = arrowParts(el, A, B, U_CM * k);
   const out = [
-    `\\draw${o} ${pt(A)} -- ${pt(along(B, u, -(ARROW_HEAD.len - ARROW_HEAD.overlap) * U_CM * k))};`,
-    `\\fill${o} ${pt(B)} -- ${pt(along(base, n, w))} -- ${pt(along(base, n, -w))} -- cycle;`,
+    `\\draw${o} ${stem.map(pt).join(' -- ')};`,
+    ...heads.map((pts) => (fill
+      ? `\\fill${o} ${pts.map(pt).join(' -- ')} -- cycle;`
+      : `\\draw${o} ${pts.map(pt).join(' -- ')};`)),
   ];
   if (el.label?.trim()) {
     const sg = el.flip ? -1 : 1;
@@ -1041,9 +1065,6 @@ function nodeTex(el, p) {
       const opts = nodeOpts(col && `text=${col}`, sc);
       return `\\node${opts ? `[${opts}]` : ''} at ${p} {${label || ''}};`;
     }
-    case 'vcc':
-    case 'vee':
-      return `\\draw${o} ${p} node[${nodeOpts(el.type, sc)}] {${label ? math(label) : ''}};`;
     default:
       return `\\draw${o} ${p} node[${nodeOpts(TYPES[el.type].tikz, el.rot && `rotate=${-90 * el.rot}`, sc)}] {};`;
   }
@@ -1442,6 +1463,10 @@ function renderProps() {
     const defName = COLORS[colorKey({ type: el.type })].name;
     addSelect('color', 'Colour', [['', `Default (${defName})`], ...colorOptions]);
   }
+  if (def.arrow) {
+    addSelect('arrowHead', 'Arrow end', Object.entries(ARROW_ENDS).map(([k, s]) => [k, s.name]));
+    addSelect('arrowEnds', 'Arrowhead at', Object.entries(ARROW_SIDES));
+  }
   if (!def.node && !def.arrow && !def.highlight) {
     const terms = el.type === 'wire' ? WIRE_TERMINALS : TERMINALS;
     addSelect('term', el.type === 'wire' ? 'Ends' : 'Terminals', terms.map((t) => [t, t || 'none']));
@@ -1583,7 +1608,6 @@ function addElement(partial) {
   };
   if (!el.label && def.defLabel) el.label = def.defLabel;
   if (!el.label && def.prefix && settings.autoLabel) el.label = nextLabel(def.prefix);
-  if (def.arrow && !el.color) el.color = 'green';
   state.elements.push(el);
   if (el.type !== 'wire') selectedId = el.id;
   refresh();
@@ -1836,9 +1860,7 @@ function iconSvg(t) {
   } else if (TYPES[t].xfmr) {
     g.innerHTML = `<g transform="scale(0.3) translate(-20 -60)">${primsToSvg(PICS['fig-transformer'].prims)}</g>`;
   } else if (TYPES[t].arrow) {
-    const col = COLORS.green.css;
-    g.innerHTML = `<line x1="-26" y1="0" x2="12" y2="0" style="stroke:${col}"/>`
-      + `<path class="nostroke" style="fill:${col}" d="M26 0 L9 -4.6 L9 4.6 Z"/>`;
+    g.innerHTML = '<line x1="-26" y1="0" x2="12" y2="0"/><path class="fill nostroke" d="M26 0 L9 -4.6 L9 4.6 Z"/>';
   } else if (TYPES[t].highlight) {
     g.innerHTML = '<polyline points="-26,8 -2,8 -2,-6 26,-6" style="stroke:rgb(232,120,100);stroke-width:9px;'
       + 'stroke-opacity:0.6;stroke-linecap:round;stroke-linejoin:round"/><polyline points="-26,8 -2,8 -2,-6 26,-6"/>';
@@ -1860,7 +1882,7 @@ function iconSvg(t) {
       + `<line x1="${-end}" y1="0" x2="${-hw}" y2="0"/><line x1="${hw}" y1="0" x2="${end}" y2="0"/>`
       + primsToSvg(pic.prims) + '</g>';
   } else if (TYPES[t].node) {
-    const dy = { ground: -10, vcc: 8, vee: -8 }[t] || 0;
+    const dy = t === 'ground' ? -10 : 0;
     g.innerHTML = `<g transform="translate(0 ${dy})">${nodeSymbol(t)}</g>`;
   } else {
     const sym = bipoleSymbol(t, settings.style);
@@ -2611,6 +2633,7 @@ function load() {
   };
   if (Array.isArray(data.state?.elements)) {
     state.elements = data.state.elements
+      .map((e) => (e?.type === 'pid' ? { ...e, type: 'blk' } : e)) // PID block was merged into Block
       .filter((e) => e && Number.isInteger(e.id) && TYPES[e.type] && isPt(e.a) && (TYPES[e.type].node || isPt(e.b)))
       .map((e) => ({
         id: e.id, type: e.type, a: { x: e.a.x, y: e.a.y },
@@ -2624,6 +2647,10 @@ function load() {
           ? { via: e.via.map((q) => ({ x: q.x, y: q.y })) } : {}),
         ...(e.color in COLORS ? { color: e.color } : {}),
         ...(TYPES[e.type].block ? blockFields(e) : {}),
+        ...(TYPES[e.type].arrow ? {
+          arrowHead: e.arrowHead in ARROW_ENDS ? e.arrowHead : 'tri',
+          arrowEnds: e.arrowEnds in ARROW_SIDES ? e.arrowEnds : 'end',
+        } : {}),
         ...(TYPES[e.type].highlight ? {
           hlColor: e.hlColor in HL_COLORS ? e.hlColor : 'salmon',
           hlWidth: typeof e.hlWidth === 'number' && e.hlWidth >= 0.5 && e.hlWidth <= 40 ? e.hlWidth : 5,
