@@ -2208,6 +2208,12 @@ document.addEventListener('keydown', (e) => {
     resizeSelected(e.key === ']' ? 0.1 : -0.1);
     return;
   }
+  if (e.key === ' ') {
+    // Also stops a focused button from being clicked by the space bar.
+    e.preventDefault();
+    zoomToFit();
+    return;
+  }
   if (e.key === 'Enter' && sigPts) {
     finishSignal();
     return;

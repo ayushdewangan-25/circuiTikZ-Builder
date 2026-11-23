@@ -23,7 +23,7 @@ You can also host the folder on any static web server, such as GitHub Pages.
 - **Alignment assist:** dashed guides appear when a terminal lines up with another one. A green ring shows when you land exactly on an existing terminal. Points snap to nearby terminals.
 - **Wires follow moved parts:** when you move or rotate a component, wires attached to its terminals stay connected. They are re-routed with right-angle bends that avoid running along other wires.
 - **Editing:** select, drag to move, drag the end handles to stretch, rotate 90°, reverse direction, mirror, delete and undo.
-- **Zoom:** buttons, `Ctrl` + mouse wheel or trackpad pinch, keyboard shortcuts, and *Fit* to show the whole circuit.
+- **Zoom:** buttons, `Ctrl` + mouse wheel or trackpad pinch, keyboard shortcuts, and *Fit* (or `Space`) to show the whole circuit.
 
 ### Components
 | Group | Components |
@@ -38,14 +38,18 @@ You can also host the folder on any static web server, such as GitHub Pages.
 
 The MOSFET, bidirectional switch, transformer, inductor, capacitor and AC source use shapes copied exactly from a reference drawing. They are output as TikZ `pic`s, defined at the top of the generated code, so the pasted code needs no extra packages. Everything else uses standard CircuiTikZ components.
 
+### Arrows
+- **Arrow (`A`):** a straight arrow for voltages or annotations, black by default. Choose the end style (filled triangle, stealth or open) and whether the head is at the end, the start or both ends.
+- **Signal arrow (`Q`):** see *Control block diagrams* below.
+
 ### Current-path highlighter
 - **Highlighter tool (`H`):** click along a path to mark where current flows, the same way you draw a signal. Double-click, `Enter` or right-click finishes.
 - Each highlight has its own colour, width (pt), style (solid or dashed with round dashes) and opacity. Highlights are drawn underneath the circuit and exported as translucent TikZ lines. To select a highlight lying under a wire, `Alt`+click it.
 
 ### Control block diagrams
-- **Signal arrow tool (`Q`):** click to start, then click to add corners. Right angles are inserted automatically. Double-click, `Enter` or right-click finishes the signal with an arrowhead. Any wire can also be given arrowheads or a start dot from its *Ends* option.
+- **Signal arrow tool (`Q`, under *Tools*):** click to start, then click to add corners. Right angles are inserted automatically. Double-click, `Enter` or right-click finishes the signal with an arrowhead. Any wire can also be given arrowheads or a start dot from its *Ends* option.
 - **Blocks** are placed by their centre. You set each block's size, fill colour, drop shadow, dashed border or no border at all, rounded corners and labels yourself.
-  - Labels are inserted as-is: use `$...$` for math and `\\` for a new line.
+  - Labels are inserted as-is: use `$...$` for math and `\\` for a new line. For a PID controller, use a block labelled `PID`.
   - Summing junctions have a style (⊕, ⊗ or plain) and a sign (+/−) for each input side.
 - **Moving blocks:** signals attached to a block follow it when it moves. Moving a group box also moves everything inside it.
 - **Output:** plain TikZ. No extra TikZ libraries are needed, and shadows are drawn directly. `bm` / `amsmath` are added to the preamble automatically when your labels use `\bm` or `\text`.
@@ -84,6 +88,8 @@ The MOSFET, bidirectional switch, transformer, inductor, capacitor and AC source
 | `Delete` / `Backspace` | Delete selected part |
 | `Ctrl` + `Z` | Undo |
 | `Ctrl` + `+` / `-` / `0` | Zoom in / out / reset |
+| `Space` | Fit the circuit to the view |
+| `Alt` + click | Select the part underneath (e.g. a highlight under a wire) |
 | `Esc` | Cancel the current placement, then go back to the Select tool |
 
 ## Using the generated code
@@ -107,6 +113,7 @@ and paste the code where you want the figure, for example inside a `figure` envi
 - **Image exports:** PDF/SVG/PNG/JPG exports are drawn from the on-screen preview. Fonts and label spacing are close to, but not the same as, the LaTeX output. For exact typesetting, compile the `.tex`.
 - **Wire following:** only wires that end exactly on a terminal follow a moved part. A wire that a terminal merely sits on part-way along (a T-junction) stays where it is.
 - **Transformer:** its terminals are fixed at 1 cm × 3 cm on the grid, so it can be rotated but not resized.
+- **Older saved circuits:** PID blocks are converted to plain blocks, and VCC/VEE nodes (no longer available) are dropped when the page loads.
 
 ## Project structure
 
