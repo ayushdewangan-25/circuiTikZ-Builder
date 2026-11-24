@@ -29,14 +29,14 @@ You can also host the folder on any static web server, such as GitHub Pages.
 | Group | Components |
 |---|---|
 | Tools | Select, wire, current-path highlighter, arrow (filled-triangle, stealth or open end, at the end, start or both), signal arrow |
-| Power electronics | MOSFET with anti-parallel diode, bidirectional switch (back-to-back MOSFETs), BDS common drain (two MOSFETs joined drain to drain), transformer (n:1, with dot markings), diode, Zener diode, LED |
+| Power electronics | MOSFET with anti-parallel diode, bidirectional switch (back-to-back MOSFETs), BDS common drain (two MOSFETs joined drain to drain), GaN BDS (single channel with two gates), GaNFET, transformer (n:1, with dot markings), diode, Zener diode, LED |
 | Passive | Resistor, variable resistor, capacitor, inductor, fuse |
 | Sources | DC voltage source, current source, AC source, battery, dependent voltage and current sources |
 | Switches & meters | Open and closed switch, ammeter, voltmeter |
 | Nodes & labels | Ground, junction dot, open terminal, text label, open voltage branch |
 | Control blocks | Block, transform block (diagonal with two labels), PI block (with icon), multiplier, summing junction, modulator (carrier/PWM icon), inverter, motor, group box |
 
-The MOSFET, bidirectional switch, BDS common drain, transformer, inductor, capacitor and AC source use shapes copied exactly from a reference drawing. They are output as TikZ `pic`s, defined at the top of the generated code, so the pasted code needs no extra packages. Everything else uses standard CircuiTikZ components.
+The MOSFET, bidirectional switch, BDS common drain, GaN BDS, GaNFET, transformer, inductor, capacitor and AC source use shapes copied exactly from a reference drawing. They are output as TikZ `pic`s, defined at the top of the generated code, so the pasted code needs no extra packages. Everything else uses standard CircuiTikZ components.
 
 ### Arrows
 - **Arrow (`A`):** a straight arrow for voltages or annotations, black by default. Choose the end style (filled triangle, stealth or open) and whether the head is at the end, the start or both ends.

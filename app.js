@@ -18,6 +18,8 @@ const COLORS = {
   teal:   { name: 'Teal',   css: 'rgb(0,128,128)',     tex: 'teal' },
   gray:   { name: 'Gray',   css: 'rgb(128,128,128)',   tex: 'gray' },
   brown:  { name: 'Brown',  css: 'rgb(191,128,64)',    tex: 'brown' },
+  // RGB (1, 0, 0.4) from the GaN reference drawings; the xcolor mix gives the exact same colour.
+  pink:   { name: 'Pink',   css: 'rgb(255,0,102)',     tex: 'red!60!magenta' },
 };
 function colorKey(el) {
   return COLORS[el.color] ? el.color : 'black';
@@ -46,6 +48,8 @@ const TYPES = {
   mosd:      { name: 'MOSFET + diode',      pic: 'fig-mosfet',   mirror: true, key: 'm' },
   bisw:      { name: 'Bidirectional switch', pic: 'fig-biswitch', mirror: true, key: 'b' },
   bdscd:     { name: 'BDS Common Drain',    pic: 'fig-bds-cd',   mirror: true },
+  ganbds:    { name: 'GaN BDS',             pic: 'fig-gan-bds',  mirror: true },
+  ganfet:    { name: 'GaNFET',              pic: 'fig-ganfet',   mirror: true },
   xfmr:      { name: 'Transformer',         node: true, xfmr: true, defLabel: 'n:1', key: 'x' },
   varrow:    { name: 'Arrow',               arrow: true, key: 'a' },
   cV:        { name: 'Dependent V source',  tikz: 'cV', prefix: 'V' },
@@ -127,7 +131,7 @@ const ICON_HEAD = 0.55;               // arrowheads inside block icons, relative
 
 const PALETTE = [
   { title: 'Tools',            items: ['select', 'wire', 'hl', 'varrow', 'signal'] },
-  { title: 'Power electronics', items: ['mosd', 'bisw', 'bdscd', 'xfmr', 'D', 'zD', 'leD'] },
+  { title: 'Power electronics', items: ['mosd', 'bisw', 'bdscd', 'ganbds', 'ganfet', 'xfmr', 'D', 'zD', 'leD'] },
   { title: 'Passive',          items: ['R', 'vR', 'C', 'L', 'fuse'] },
   { title: 'Sources',          items: ['V', 'I', 'sV', 'battery', 'cV', 'cI'] },
   { title: 'Switches & meters', items: ['nos', 'ncs', 'ammeter', 'voltmeter'] },
@@ -424,6 +428,22 @@ function picShape(prims) {
 
 const MOSFET_PIC = picShape(fromFig(MOSFET_FIG, -0.6235));
 
+// GaN devices: one channel, terminals top and bottom on the axis (x = 0), gates on the left.
+// The channel's thicker strokes (1 u wide) are drawn as filled bars.
+const GAN_CHANNEL = [
+  { k: 'line', p: [[8.8604, 15.7348], [14.5324, 15.7348], [14.5324, 19.2308]] },
+  { k: 'line', p: [[8.8604, 3.8293], [14.5324, 3.8293], [14.5324, 0.3333]] },
+  { k: 'fill', p: rect(8.3604, 12.9013, 1, 5.6667) },
+  { k: 'fill', p: rect(8.3604, 8.1297, 1, 3.3053) },
+  { k: 'fill', p: rect(8.3604, 0.9932, 1, 5.672) },
+];
+const ganGate = (y) => [
+  { k: 'fill', p: [[8.3817, y], [4.6004, y + 1.8907], [4.6004, y - 1.8907]] },
+  { k: 'line', p: [[1.3027, y], [5.0787, y]] },
+  { k: 'ring', c: [1.3, y], r: 0.987 },
+];
+const ganFig = (gates) => mapPrims([...GAN_CHANNEL, ...gates.flatMap(ganGate)], ([x, y]) => [x - 14.5324, y]);
+
 // Two mirrored MOSFETs joined drain to drain, each scaled to fill half of a 2 cm span.
 const BDS_CD_HALF = flipFig(scaleFig(MOSFET_PIC.prims, 10 / MOSFET_PIC.hw));
 
@@ -433,6 +453,8 @@ const PICS = {
     ...mapPrims(BDS_CD_HALF, ([x, y]) => [x + 10, y]),
     ...mapPrims(BDS_CD_HALF, ([x, y]) => [-x - 10, y]),
   ]),
+  'fig-gan-bds': picShape(fromFig(ganFig([15.7348, 3.8293]), 9.7821)),
+  'fig-ganfet': picShape(fromFig(ganFig([3.8293]), 9.7821)),
   'fig-biswitch': picShape(fromFig([
     ...shiftFig(MOSFET_FIG, 9.656),
     ...shiftFig(flipFig(MOSFET_FIG), -9.656),
