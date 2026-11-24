@@ -218,9 +218,46 @@ const TEMPLATES = {
 // Settings a template applies along with its circuit, so it opens with the intended look.
 const TEMPLATE_SETTINGS = {
   dab: { lineWidth: 1, gridStep: 0.5 },
+  dabgan: { lineWidth: 1, gridStep: 0.5 },
   ctrlsps: { lineWidth: 0.8, gridStep: 0.25 },
   foc: { lineWidth: 0.8, gridStep: 0.25 },
 };
+
+// 1Φ single-stage AC-DC converter built with GaN switches.
+TEMPLATES.dabgan = [
+  ['xfmr', [9, 4], { label: 'n:1' }],
+  ['sV', [1, 10], [1, 1]],
+  ['L', [6, 4], [8, 4], { label: 'L' }],
+  ['C', [16, 10], [16, 1], { label: 'C_o' }],
+  ['ganbds', [5, 8], [5, 9], { color: 'pink' }],
+  ['ganbds', [3, 8], [3, 9], { color: 'pink' }],
+  ['ganbds', [3, 2], [3, 3], { color: 'pink' }],
+  ['ganbds', [5, 2], [5, 3], { color: 'pink' }],
+  ['ganfet', [12, 2], [12, 3]],
+  ['ganfet', [14, 2], [14, 3]],
+  ['ganfet', [12, 8], [12, 9]],
+  ['ganfet', [14, 8], [14, 9]],
+  ['varrow', [8, 5], [8, 6], { label: 'v_{\\mathrm{pri}}', color: 'green', flip: true }],
+  ['varrow', [11, 5], [11, 6], { label: 'v_{\\mathrm{sec}}', color: 'green' }],
+  ['varrow', [17, 2], [17, 9]],
+  ['ocirc', [18, 1]],
+  ['ocirc', [18, 10]],
+  ...[[3, 1], [3, 10], [3, 4], [5, 7], [12, 4], [14, 7], [14, 1], [16, 1], [14, 10], [16, 10]]
+    .map((p) => ['circ', p]),
+  ...[
+    [[1, 1], [5, 1]], [[1, 10], [5, 10]], [[3, 3.5], [3, 7.5]], [[5, 3.5], [5, 7.5]],
+    [[3, 4], [6, 4]], [[8, 4], [9, 4]], [[5, 7], [9, 7]], [[10, 4], [12, 4]], [[10, 7], [14, 7]],
+    [[12, 4], [12, 7.5]], [[14, 3.5], [14, 7.5]], [[12, 1], [18, 1]], [[12, 10], [18, 10]],
+    [[3, 1], [3, 1.5]], [[5, 1], [5, 1.5]], [[3, 9.5], [3, 10]], [[5, 9.5], [5, 10]],
+    [[14, 1], [14, 1.5]], [[12, 9.5], [12, 10]], [[14, 9.5], [14, 10]],
+    [[3, 1.5], [3, 2]], [[3, 3], [3, 3.5]], [[5, 1.5], [5, 2]], [[5, 3], [5, 3.5]],
+    [[3, 7.5], [3, 8]], [[3, 9], [3, 9.5]], [[5, 7.5], [5, 8]], [[5, 9], [5, 9.5]],
+    [[12, 1], [12, 2]], [[12, 7.5], [12, 8]], [[12, 9], [12, 9.5]], [[14, 7.5], [14, 8]],
+    [[14, 9], [14, 9.5]], [[14, 1.5], [14, 2]], [[14, 3], [14, 3.5]], [[12, 3], [12, 4]],
+  ].map(([a, b]) => ['wire', a, b]),
+  ['text', [18, 2], { label: '$+$' }],
+  ['text', [18, 9], { label: '$-$' }],
+];
 
 // SPS current-control loop of the M-DAB charger.
 TEMPLATES.ctrlsps = [

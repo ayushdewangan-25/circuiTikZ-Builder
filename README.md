@@ -67,7 +67,7 @@ The MOSFET, bidirectional switch, BDS common drain, GaN BDS, GaNFET, transformer
   - line width (presets from 0.4 to 1.2 pt, or a custom value from 0.1 to 5 pt)
 - **Editable code:** click *Edit code* to change the LaTeX directly. The diagram is rebuilt from the code as you type: change coordinates, labels, values, colours or options, or add new `\draw ... to[...] ...;` lines. *Done* (`Ctrl`+`Enter`) keeps the result, *Cancel* (`Esc`) restores the diagram as it was, and one *Undo* reverts the whole edit. The canvas is locked while you edit.
 - **Diagram download** as a vector **PDF**, **SVG**, **PNG** (transparent background) or **JPG**, at 150, 300 or 600 dpi. Exports are true to size, with 1 grid step = 1 cm.
-- **Templates:** voltage divider, RC low-pass filter, series RLC circuit, a 1Φ single-stage AC-DC converter, and two control block diagrams (an SPS current-control loop and induction-motor field-oriented control).
+- **Templates:** voltage divider, RC low-pass filter, series RLC circuit, a 1Φ single-stage AC-DC converter (with MOSFET switches, and a version using GaN BDS / GaNFET switches), and two control block diagrams (an SPS current-control loop and induction-motor field-oriented control).
 - **Auto-save:** your circuit and settings are kept in the browser's local storage.
 
 ## Keyboard shortcuts
