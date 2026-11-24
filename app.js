@@ -2326,6 +2326,79 @@ function deleteSelected() {
   refresh();
 }
 
+// ---------------------------------------------------------------- copy, paste and Ctrl+drag cloning
+let clipboard = null; // { items, last: anchor of the latest placement, cursor: pointer at that time }
+
+// The selected part plus, for a group box, everything lying fully inside it.
+function selectionItems() {
+  const el = getSel();
+  if (!el) return [];
+  const inside = el.kind !== 'group' ? [] : state.elements.filter((e) => e !== el
+    && [...elPoints(e), ...(e.via || [])].every((q) => insideBlock(el, q)));
+  return [el, ...inside];
+}
+
+// Adds shifted copies of `items` to the circuit; auto-numbered labels get the next free number.
+function addCopies(items, dx, dy) {
+  const mv = (q) => ({ x: q.x + dx, y: q.y + dy });
+  return items.map((e) => {
+    const c = { ...clone(e), id: state.nextId++, a: mv(e.a) };
+    if (e.b) c.b = mv(e.b);
+    if (e.via) c.via = e.via.map(mv);
+    const prefix = TYPES[c.type].prefix;
+    if (prefix && settings.autoLabel && new RegExp(`^${prefix}_\\{?\\d+\\}?$`).test(c.label || '')) c.label = nextLabel(prefix);
+    state.elements.push(c);
+    return c;
+  });
+}
+
+function copySelection() {
+  const items = selectionItems();
+  if (!items.length) return;
+  clipboard = { items: clone(items), last: { ...items[0].a }, cursor: hover };
+}
+
+function cutSelection() {
+  const items = selectionItems();
+  if (!items.length) return;
+  copySelection();
+  snapshot();
+  state.elements = state.elements.filter((e) => !items.includes(e));
+  selectedId = null;
+  refresh();
+}
+
+// Pastes at the pointer if it has moved since the last copy/paste, otherwise 1 cm down-right of the last one.
+function paste() {
+  if (!clipboard) return;
+  const { items } = clipboard;
+  const target = hover && !samePt(hover, clipboard.cursor)
+    ? hover : { x: clipboard.last.x + 1, y: clipboard.last.y + 1 };
+  const pts = items.flatMap((e) => [...elPoints(e), ...(e.via || [])]);
+  const dx = Math.max(target.x - items[0].a.x, -Math.min(...pts.map((q) => q.x)));
+  const dy = Math.max(target.y - items[0].a.y, -Math.min(...pts.map((q) => q.y)));
+  clipboard.last = { x: items[0].a.x + dx, y: items[0].a.y + dy };
+  clipboard.cursor = hover;
+  snapshot();
+  const copies = addCopies(items, dx, dy);
+  selectedId = copies[0].id;
+  refresh();
+}
+
+// Ctrl+drag: drop a copy in place and drag the copy, leaving the original (and its wires) untouched.
+function startCloneDrag(id, p) {
+  select(id);
+  const snap = JSON.stringify(state);
+  const copies = addCopies(selectionItems(), 0, 0);
+  select(copies[0].id);
+  startDrag('move', p);
+  const carried = copies.slice(1).map((e) => ({ e, orig: clone({ a: e.a, b: e.b, via: e.via }) }));
+  Object.assign(drag, {
+    snap, clone: id, attached: [], carried,
+    bounds: [...copies.flatMap((e) => [...elPoints(e), ...(e.via || [])])],
+  });
+}
+
 function select(id) {
   selectedId = id;
   renderCanvas();
@@ -2363,7 +2436,7 @@ function loadTemplate(name) {
 
 // ---------------------------------------------------------------- tools & palette
 const HINTS = {
-  select: 'Click to select, drag to move, drag the blue handles to stretch. Shift+R rotates, [ ] resize, Del deletes.',
+  select: 'Click to select, drag to move (Ctrl+drag copies), drag the blue handles to stretch. Shift+R rotates, [ ] resize, Ctrl+C / Ctrl+V copy and paste, Del deletes.',
   node: 'Click a grid point to place.',
   bipole: 'Click the start point, then the end point. Right-click / Esc cancels.',
   wire: 'Click points to draw connected wires. Right-click / Esc to stop.',
@@ -2651,6 +2724,10 @@ svg.addEventListener('mousedown', (e) => {
         return;
       }
     }
+    if (g && (e.ctrlKey || e.metaKey)) {
+      startCloneDrag(Number(g.dataset.id), p);
+      return;
+    }
     if (g) {
       select(Number(g.dataset.id));
       startDrag('move', p);
@@ -2727,7 +2804,13 @@ window.addEventListener('mousemove', (e) => {
 window.addEventListener('mouseup', () => {
   if (!drag) return;
   const el = getSel();
-  if (el && el.b && !el.via && samePt(el.a, el.b)) {
+  if (drag.clone && !drag.moved) {
+    // Ctrl+click without dragging: no copy, just select the original.
+    state = JSON.parse(drag.snap);
+    selectedId = drag.clone;
+    renderCanvas();
+    renderProps();
+  } else if (el && el.b && !el.via && samePt(el.a, el.b)) {
     // Collapsed to zero length: cancel the whole drag, including any wires that followed.
     state = JSON.parse(drag.snap);
     if (drag.moved) history.pop();
@@ -2759,6 +2842,12 @@ document.addEventListener('keydown', (e) => {
     if (e.key === '0') setZoom(1);
     else setZoom(e.key === '-' ? zoom / ZOOM_STEP : zoom * ZOOM_STEP);
     return;
+  }
+  if ((e.ctrlKey || e.metaKey) && !e.altKey && !typing && !codeEdit) {
+    const k = e.key.toLowerCase();
+    if (k === 'c' && selectedId != null) { e.preventDefault(); copySelection(); return; }
+    if (k === 'x' && selectedId != null) { e.preventDefault(); cutSelection(); return; }
+    if (k === 'v' && clipboard) { e.preventDefault(); paste(); return; }
   }
   if (typing || codeEdit || e.ctrlKey || e.metaKey || e.altKey) return;
   if (e.shiftKey && e.key.toLowerCase() === 'r') {
