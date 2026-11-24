@@ -22,7 +22,7 @@ You can also host the folder on any static web server, such as GitHub Pages.
 - **Grid size:** 1 cm, 0.5 cm or 0.25 cm. One grid step equals the same distance in the generated LaTeX.
 - **Alignment assist:** dashed guides appear when a terminal lines up with another one. A green ring shows when you land exactly on an existing terminal. Points snap to nearby terminals.
 - **Wires follow moved parts:** when you move or rotate a component, wires attached to its terminals stay connected. They are re-routed with right-angle bends that avoid running along other wires.
-- **Editing:** select, drag to move, drag the end handles to stretch, rotate 90°, reverse direction, mirror, delete and undo.
+- **Editing:** select, drag to move, drag the end handles to stretch, rotate 90°, reverse direction, mirror, delete, undo and redo.
 - **Zoom:** buttons, `Ctrl` + mouse wheel or trackpad pinch, keyboard shortcuts, and *Fit* (or `Space`) to show the whole circuit.
 
 ### Components
@@ -88,6 +88,7 @@ The MOSFET, bidirectional switch, BDS common drain, transformer, inductor, capac
 | `[` / `]` | Shrink / grow selected part |
 | `Delete` / `Backspace` | Delete selected part |
 | `Ctrl` + `Z` | Undo |
+| `Ctrl` + `Y` or `Ctrl` + `Shift` + `Z` | Redo |
 | `Ctrl` + `+` / `-` / `0` | Zoom in / out / reset |
 | `Space` | Fit the circuit to the view |
 | `Alt` + click | Select the part underneath (e.g. a highlight under a wire) |

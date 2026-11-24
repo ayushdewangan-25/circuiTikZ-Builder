@@ -326,6 +326,7 @@ const LW_MIN = 0.1, LW_MAX = 5;
 // Element coordinates are stored in cm; these steps are exact in binary floating point.
 const GRID_STEPS = [1, 0.5, 0.25];
 const history = [];
+const future = [];  // states undone, for redo; cleared by any new change
 let tool = 'select';
 let selectedId = null;
 let pending = null;   // first click of a two-terminal element
@@ -2088,18 +2089,36 @@ function resizeSelected(delta) {
 function pushHistory(snap) {
   history.push(snap);
   if (history.length > 100) history.shift();
+  future.length = 0;
+  syncHistoryButtons();
 }
 const snapshot = () => pushHistory(JSON.stringify(state));
 
+function syncHistoryButtons() {
+  $('btn-undo').disabled = !history.length;
+  $('btn-redo').disabled = !future.length;
+}
+
 function undo() {
   if (!history.length) return;
+  future.push(JSON.stringify(state));
   state = JSON.parse(history.pop());
   if (!getSel()) selectedId = null;
   pending = null;
   refresh();
 }
 
+function redo() {
+  if (!future.length) return;
+  history.push(JSON.stringify(state));
+  state = JSON.parse(future.pop());
+  if (!getSel()) selectedId = null;
+  pending = null;
+  refresh();
+}
+
 function refresh() {
+  syncHistoryButtons();
   renderCanvas();
   renderCode();
   renderProps();
@@ -2690,6 +2709,7 @@ window.addEventListener('mouseup', () => {
     // Collapsed to zero length: cancel the whole drag, including any wires that followed.
     state = JSON.parse(drag.snap);
     if (drag.moved) history.pop();
+    syncHistoryButtons();
     renderCanvas();
     renderCode();
   } else if (drag.moved) {
@@ -2706,10 +2726,10 @@ document.addEventListener('keydown', (e) => {
   const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName || '');
   // Dropdowns and checkboxes have no undo of their own, so only text fields keep Ctrl+Z.
   const textEntry = document.activeElement?.matches?.('textarea, input[type="text"], input[type="number"]');
-  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+  if ((e.ctrlKey || e.metaKey) && (e.key.toLowerCase() === 'z' || e.key.toLowerCase() === 'y')) {
     if (textEntry || codeEdit) return;
     e.preventDefault();
-    undo();
+    if (e.key.toLowerCase() === 'y' || e.shiftKey) redo(); else undo();
     return;
   }
   if ((e.ctrlKey || e.metaKey) && ['=', '+', '-', '0'].includes(e.key)) {
@@ -2756,6 +2776,7 @@ document.addEventListener('keydown', (e) => {
 
 // ---------------------------------------------------------------- top bar, settings, output
 $('btn-undo').addEventListener('click', undo);
+$('btn-redo').addEventListener('click', redo);
 
 $('btn-clear').addEventListener('click', () => {
   if (!state.elements.length || !confirm('Clear the whole circuit?')) return;
