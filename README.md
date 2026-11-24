@@ -64,6 +64,7 @@ The MOSFET, bidirectional switch, BDS common drain, transformer, inductor, capac
   - American or European symbol style
   - overall scale
   - line width (presets from 0.4 to 1.2 pt, or a custom value from 0.1 to 5 pt)
+- **Editable code:** click *Edit code* to change the LaTeX directly. The diagram is rebuilt from the code as you type: change coordinates, labels, values, colours or options, or add new `\draw ... to[...] ...;` lines. *Done* (`Ctrl`+`Enter`) keeps the result, *Cancel* (`Esc`) restores the diagram as it was, and one *Undo* reverts the whole edit. The canvas is locked while you edit.
 - **Diagram download** as a vector **PDF**, **SVG**, **PNG** (transparent background) or **JPG**, at 150, 300 or 600 dpi. Exports are true to size, with 1 grid step = 1 cm.
 - **Templates:** voltage divider, RC low-pass filter, series RLC circuit, a 1Φ single-stage AC-DC converter, and two control block diagrams (an SPS current-control loop and induction-motor field-oriented control).
 - **Auto-save:** your circuit and settings are kept in the browser's local storage.
@@ -114,6 +115,7 @@ and paste the code where you want the figure, for example inside a `figure` envi
 - **Wire following:** only wires that end exactly on a terminal follow a moved part. A wire that a terminal merely sits on part-way along (a T-junction) stays where it is.
 - **Transformer:** its terminals are fixed at 1 cm × 3 cm on the grid, so it can be rotated but not resized.
 - **Older saved circuits:** PID blocks are converted to plain blocks, and VCC/VEE nodes (no longer available) are dropped when the page loads.
+- **Editing the code:** the editor reads back the code it writes (circuitikz paths, the custom `pic`s, arrows, signals, blocks, highlights, nodes and labels). Statements it doesn't recognise are listed under the code and skipped. A part's label nodes are tied to the part by position, so if you move a part's main line but not its label, the label stays where it is as a free text label. Terminal dots (`*-o`, …) come back as separate junction dots / open terminals, which look the same.
 
 ## Project structure
 

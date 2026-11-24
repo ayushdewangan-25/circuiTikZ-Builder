@@ -333,6 +333,7 @@ let sigPts = null;    // points of a signal arrow being drawn
 let hover = null;
 let drag = null;
 let fieldSnap = null;
+let codeEdit = null;  // { src, state, settings } captured when code editing starts
 
 const $ = (id) => document.getElementById(id);
 const svg = $('canvas');
@@ -1139,6 +1140,26 @@ function wireLabelTex(el, T, col) {
   return [`\\node[anchor=${vertical ? 'west' : 'south'}${col ? `, text=${col}` : ''}] at ${pt(at)} {${math(text)}};`];
 }
 
+function xfmrLabelTex(el, T, col) {
+  const label = el.label?.trim();
+  if (!label) return [];
+  const rot = el.rot || 0;
+  const c = rot90({ x: 0.5, y: 3.05 }, rot), d = rot90({ x: 0, y: 1 }, rot);
+  const anchor = d.y > 0.5 ? 'north' : d.y < -0.5 ? 'south' : d.x > 0 ? 'west' : 'east';
+  return [`\\node[anchor=${anchor}${col ? `, text=${col}` : ''}] at ${pt(T({ x: el.a.x + c.x, y: el.a.y + c.y }))} {${math(label)}};`];
+}
+
+function dotLabelTex(el, T, col) {
+  const label = el.label?.trim();
+  return label ? [`\\node[anchor=south${col ? `, text=${col}` : ''}] at ${pt(along(T(el.a), [0, 1], 0.1))} {${math(label)}};`] : [];
+}
+
+// Canvas point that becomes the TikZ origin's x (left edge) and y (top edge) of the output.
+function texOrigin(els) {
+  const pts = els.flatMap((e) => [...elPoints(e), ...(e.via || [])]);
+  return { x: Math.min(...pts.map((p) => p.x)), y: Math.max(...pts.map((p) => p.y)) };
+}
+
 function blockTex(el, T, usedPics) {
   const r = blockRect(el);
   const [X0, Y0] = T({ x: r.x0, y: r.y1 }), [X1, Y1] = T({ x: r.x1, y: r.y0 });
@@ -1202,9 +1223,7 @@ function generateTex() {
   const markers = [];
   const usedPics = new Set();
   if (els.length) {
-    const pts = els.flatMap((e) => [...elPoints(e), ...(e.via || [])]);
-    const minX = Math.min(...pts.map((p) => p.x));
-    const maxY = Math.max(...pts.map((p) => p.y));
+    const { x: minX, y: maxY } = texOrigin(els);
     // Canvas y grows downwards, TikZ y grows upwards.
     const T = (p) => [p.x - minX, maxY - p.y];
     const P = (p) => pt(T(p));
@@ -1235,20 +1254,15 @@ function generateTex() {
       }
       if (def.node) {
         flush();
-        const label = el.label?.trim();
         if (def.xfmr) {
           usedPics.add('fig-transformer');
           const rot = el.rot || 0;
           const opts = [...(col ? [`color=${col}`] : []), ...(rot ? [`rotate=${-90 * rot}`] : [])];
           push([`\\pic${opts.length ? `[${opts.join(', ')}]` : ''} at ${P(el.a)} {fig-transformer};`]);
-          if (label) {
-            const c = rot90({ x: 0.5, y: 3.05 }, rot), d = rot90({ x: 0, y: 1 }, rot);
-            const anchor = d.y > 0.5 ? 'north' : d.y < -0.5 ? 'south' : d.x > 0 ? 'west' : 'east';
-            push([`\\node[anchor=${anchor}${col ? `, text=${col}` : ''}] at ${P({ x: el.a.x + c.x, y: el.a.y + c.y })} {${math(label)}};`]);
-          }
+          push(xfmrLabelTex(el, T, col));
         } else if (el.type === 'circ' || el.type === 'ocirc') {
           markers.push(markerTex(el.type === 'circ' ? '*' : 'o', T(el.a), col, elSize(el)));
-          if (label) push([`\\node[anchor=south${col ? `, text=${col}` : ''}] at ${pt(along(T(el.a), [0, 1], 0.1))} {${math(label)}};`]);
+          push(dotLabelTex(el, T, col));
         } else {
           push([nodeTex(el, P(el.a))]);
         }
@@ -1334,7 +1348,499 @@ function generateTex() {
 }
 
 function renderCode() {
-  codeEl.value = generateTex();
+  if (!codeEdit) codeEl.value = generateTex();
+}
+
+// ---------------------------------------------------------------- LaTeX import
+// Reads back the code this app writes. Each part is recognised from its main statement; the extra
+// lines it would generate (leads, arrowheads, shadows, label nodes) are regenerated and matched.
+const TEX_TOL = 0.003;
+const NUM_RE = /-?(?:\d+\.?\d*|\.\d+)/g;
+const PH = ['\u0001', '\u0002', '\u0003', '\u0004', '\u0005']; // label placeholders while matching
+
+function readGroup(s, i, open, close) {
+  let depth = 0;
+  for (let j = i; j < s.length; j++) {
+    if (s[j] === open) depth++;
+    else if (s[j] === close && --depth === 0) return [s.slice(i + 1, j), j + 1];
+  }
+  return null;
+}
+
+function splitTop(s, sep) {
+  const out = [];
+  let depth = 0, cur = '';
+  for (const ch of s) {
+    if ('{[('.includes(ch)) depth++;
+    else if ('}])'.includes(ch)) depth--;
+    if (ch === sep && depth === 0) { out.push(cur); cur = ''; } else cur += ch;
+  }
+  out.push(cur);
+  return out.map((x) => x.trim()).filter(Boolean);
+}
+
+const optVal = (opts, key) => {
+  for (const o of splitTop(opts, ',')) {
+    const i = o.indexOf('=');
+    if (i > 0 && o.slice(0, i).trim() === key) return o.slice(i + 1).trim();
+  }
+  return null;
+};
+const hasOpt = (opts, re) => splitTop(opts, ',').some((o) => re.test(o));
+const COLOR_BY_TEX = Object.fromEntries(Object.entries(COLORS).filter(([, c]) => c.tex).map(([k, c]) => [c.tex, k]));
+const colorOf = (opts) => {
+  for (const o of splitTop(opts, ',')) {
+    const k = COLOR_BY_TEX[o.replace(/^(color|text)\s*=\s*/, '')];
+    if (k) return k;
+  }
+  return '';
+};
+const nearestRgb = (table, rgb, fallback) => {
+  let best = fallback, bestD = Infinity;
+  for (const [k, c] of Object.entries(table)) {
+    if (!c.rgb) continue;
+    const d = c.rgb.reduce((s, v, i) => s + (v - rgb[i]) ** 2, 0);
+    if (d < bestD) { bestD = d; best = k; }
+  }
+  return best;
+};
+const rgbOf = (s) => (/red,\s*(\d+);\s*green,\s*(\d+);\s*blue,\s*(\d+)/.exec(s || '') || []).slice(1).map(Number);
+const unmath = (s) => { const m = /^\$([^$]*)\$$/.exec(s.trim()); return m ? m[1] : s.trim(); };
+const unbrace = (s) => (/^\{[\s\S]*\}$/.test(s) && readGroup(s, 0, '{', '}')?.[1] === s.length ? s.slice(1, -1) : s);
+const r4 = (v) => Math.round(v * 1e4) / 1e4 + 0;
+const C0 = ([x, y]) => ({ x: r4(x), y: r4(-y) }); // TikZ point -> canvas point (before the final shift)
+const T0 = (p) => [p.x, -p.y];
+const near = (p, q, tol = TEX_TOL * 2) => Math.abs(p[0] - q[0]) <= tol && Math.abs(p[1] - q[1]) <= tol;
+const sub = (p, q) => [p[0] - q[0], p[1] - q[1]];
+const len2 = (v) => Math.hypot(v[0], v[1]);
+
+function parseStmt(src) {
+  const m = /^\\(draw|fill|node|pic)\b\s*/.exec(src);
+  if (!m) return null;
+  const st = { cmd: m[1], opts: '', src, used: false };
+  let i = m[0].length;
+  if (src[i] === '[') {
+    const g = readGroup(src, i, '[', ']');
+    if (!g) return null;
+    [st.opts, i] = g;
+  }
+  const rest = src.slice(i).trim();
+  if (st.cmd === 'node' || st.cmd === 'pic') {
+    const a = /^at\s*\(\s*([-\d.]+)\s*,\s*([-\d.]+)\s*\)\s*/.exec(rest);
+    const g = a && rest[a[0].length] === '{' && readGroup(rest, a[0].length, '{', '}');
+    if (!g || rest.slice(g[1]).trim() || !Number.isFinite(+a[1]) || !Number.isFinite(+a[2])) return null;
+    st.at = [+a[1], +a[2]];
+    st.text = g[0];
+    return signStmt(st);
+  }
+  st.path = [];
+  let j = 0;
+  while (j < rest.length) {
+    const r = rest.slice(j);
+    let t;
+    if ((t = /^\s+/.exec(r))) { j += t[0].length; continue; }
+    if ((t = /^\(\s*([-\d.]+)\s*,\s*([-\d.]+)\s*\)/.exec(r))) {
+      if (!Number.isFinite(+t[1]) || !Number.isFinite(+t[2])) return null;
+      st.path.push({ t: 'pt', p: [+t[1], +t[2]] });
+    } else if ((t = /^--\s*cycle\b/.exec(r))) st.path.push({ t: 'cycle' });
+    else if ((t = /^--/.exec(r))) st.path.push({ t: '--' });
+    else if ((t = /^rectangle\b/.exec(r))) st.path.push({ t: 'rect' });
+    else if ((t = /^circle\s*\(\s*([-\d.]+)\s*\)/.exec(r))) st.path.push({ t: 'circle', r: +t[1] });
+    else if ((t = /^(to|node)\s*\[/.exec(r))) {
+      const g = readGroup(rest, j + t[0].length - 1, '[', ']');
+      if (!g) return null;
+      const q = { t: t[1], opts: g[0] };
+      j = g[1];
+      if (q.t === 'node') {
+        const k = rest.slice(j).search(/\S/);
+        const g2 = k >= 0 && rest[j + k] === '{' && readGroup(rest, j + k, '{', '}');
+        if (!g2) return null;
+        q.text = g2[0];
+        j = g2[1];
+      }
+      st.path.push(q);
+      continue;
+    } else return null;
+    j += t[0].length;
+  }
+  return signStmt(st);
+}
+
+// Comparable signature: structure with numbers replaced by '#', plus the numbers. Node text is left out.
+function signStmt(st) {
+  const nums = [];
+  const norm = (s) => s.replace(/\s+/g, '').replace(NUM_RE, (n) => { nums.push(+n); return '#'; });
+  let key = `${st.cmd}[${norm(st.opts)}]`;
+  if (st.path) {
+    key += st.path.map((q) => {
+      if (q.t === 'pt') { nums.push(...q.p); return 'P'; }
+      if (q.t === 'circle') { nums.push(q.r); return 'C'; }
+      if (q.t === 'to' || q.t === 'node') return `${q.t}[${norm(q.opts)}]`;
+      return q.t;
+    }).join(' ');
+  } else {
+    nums.push(...st.at);
+    key += `@{${st.cmd === 'pic' ? st.text.trim() : ''}}`;
+  }
+  st.key = key;
+  st.nums = nums;
+  return st;
+}
+
+const sameStmt = (a, b) => a.key === b.key && a.nums.length === b.nums.length
+  && a.nums.every((v, i) => Math.abs(v - b.nums[i]) <= TEX_TOL);
+const ptsOf = (st) => st.path.filter((q) => q.t === 'pt').map((q) => q.p);
+// Plain polyline `(p) -- (q) -- ...` (optionally closed with `-- cycle`).
+function polyOf(st, cycle = false) {
+  const p = st.path;
+  if (!p || p[0]?.t !== 'pt') return null;
+  let i = 1;
+  for (; i + 1 < p.length && p[i].t === '--' && p[i + 1].t === 'pt'; i += 2);
+  if (cycle ? !(i === p.length - 1 && p[i].t === 'cycle') : i !== p.length) return null;
+  return ptsOf(st);
+}
+
+function parseTex(src) {
+  const out = { settings: {}, skipped: [] };
+  const style = /\\usepackage\[(american|european)\]\{circuitikz\}/.exec(src);
+  if (style) out.settings.style = style[1];
+  out.settings.fullDoc = /\\documentclass/.test(src);
+  const text = src.split('\n').map((l) => l.replace(/(^|[^\\])%.*$/, '$1')).join('\n');
+  const begin = /\\begin\{circuitikz\}\s*/.exec(text);
+  const end = text.indexOf('\\end{circuitikz}');
+  if (!begin || end < begin.index) return { error: 'Could not find \\begin{circuitikz} … \\end{circuitikz}.' };
+  let i = begin.index + begin[0].length;
+  if (text[i] === '[') {
+    const g = readGroup(text, i, '[', ']');
+    if (!g) return { error: 'Unbalanced [ ] after \\begin{circuitikz}.' };
+    const lw = parseFloat(optVal(g[0], 'line width'));
+    if (lw >= LW_MIN && lw <= LW_MAX) out.settings.lineWidth = lw;
+    const sc = parseFloat(optVal(g[0], 'scale'));
+    out.settings.scale = sc > 0 && sc <= 10 ? sc : 1;
+    i = g[1];
+  }
+  let body = text.slice(i, end);
+  for (let k; (k = body.indexOf('\\tikzset')) >= 0;) {
+    const b = body.indexOf('{', k);
+    const g = b >= 0 && readGroup(body, b, '{', '}');
+    if (!g) return { error: 'Unbalanced braces in \\tikzset.' };
+    body = body.slice(0, k) + body.slice(g[1]);
+  }
+  const stmts = [];
+  for (const s of splitTop(body, ';')) {
+    const st = parseStmt(s.replace(/\s+/g, ' ').trim());
+    if (st) stmts.push(st); else out.skipped.push(s.trim());
+  }
+
+  const els = [];
+  const add = (type, fields) => {
+    const el = { id: 0, type, label: '', value: '', current: '', voltage: '', term: '',
+      ...(TYPES[type].preset ? clone(TYPES[type].preset) : {}), ...fields };
+    els.push(el);
+    return el;
+  };
+  const free = (pred) => stmts.filter((s) => !s.used && pred(s));
+  const find = (line) => {
+    const g = line && parseStmt(line.replace(/;\s*$/, ''));
+    return g && stmts.find((s) => !s.used && sameStmt(s, g));
+  };
+  const take = (line) => { const s = find(line); if (s) s.used = true; return s; };
+  // Match the generated lines of `el`; lines holding placeholder i fill field fields[i] from the source text.
+  const claim = (lines, el, fields, conv = unmath) => {
+    let n = 0;
+    for (const line of lines) {
+      const f = PH.findIndex((c) => line.includes(c));
+      const s = take(line);
+      if (s && f >= 0) el[fields[f]] = conv(s.text, fields[f]);
+      if (s) n++;
+    }
+    return n;
+  };
+  const sizeField = (k) => (Math.abs(k - 1) > 1e-3 ? { size: Math.min(SIZE_MAX, Math.max(SIZE_MIN, +k.toFixed(3))) } : {});
+
+  // Highlights
+  for (const st of free((s) => s.cmd === 'draw' && /draw opacity/.test(s.opts))) {
+    const pts = polyOf(st);
+    if (!pts || pts.length < 2) continue;
+    st.used = true;
+    const w = parseFloat(optVal(st.opts, 'line width')), op = parseFloat(optVal(st.opts, 'draw opacity'));
+    add('hl', {
+      a: C0(pts[0]), b: C0(pts[pts.length - 1]), ...(pts.length > 2 ? { via: pts.slice(1, -1).map(C0) } : {}),
+      hlColor: nearestRgb(HL_COLORS, rgbOf(optVal(st.opts, 'draw')), 'salmon'),
+      hlWidth: w >= 0.5 && w <= 40 ? w : 5,
+      hlStyle: /dash pattern/.test(st.opts) ? 'dashed' : 'solid',
+      hlOpacity: op >= 0.05 && op <= 1 ? op : 0.6,
+    });
+  }
+
+  // Blocks: a rectangle/circle outline (or a borderless fill), scored against every block type.
+  const isShape = (s) => {
+    const p = s.path;
+    if (!p || s.opts.includes('black!40')) return false;
+    const rect = p.length === 3 && p[0].t === 'pt' && p[1].t === 'rect' && p[2].t === 'pt';
+    const circ = p.length === 2 && p[0].t === 'pt' && p[1].t === 'circle';
+    if (!rect && !circ) return false;
+    if (s.cmd === 'fill') return optVal(s.opts, 'fill') !== null;
+    return !(circ && optVal(s.opts, 'fill') === 'white'); // white-filled small rings are open terminals
+  };
+  for (const st of free(isShape)) {
+    if (st.used) continue;
+    const pts = ptsOf(st), round = st.path[1].t === 'circle';
+    const C = round ? pts[0] : [(pts[0][0] + pts[1][0]) / 2, (pts[0][1] + pts[1][1]) / 2];
+    const w = round ? 2 * st.path[1].r : Math.abs(pts[1][0] - pts[0][0]);
+    const h = round ? w : Math.abs(pts[1][1] - pts[0][1]);
+    const fillRaw = optVal(st.opts, 'fill');
+    const base = {
+      a: C0(C), w: r4(w), h: r4(h),
+      fill: fillRaw ? nearestRgb(FILLS, rgbOf(fillRaw), 'none') : 'none',
+      dashed: hasOpt(st.opts, /^dashed$/), rounded: hasOpt(st.opts, /^rounded corners/),
+      noBorder: st.cmd === 'fill', color: colorOf(st.opts),
+    };
+    let best = null;
+    for (const [type, def] of Object.entries(TYPES)) {
+      if (!def.block || (def.preset.shape === 'circle' || def.preset.kind === 'sum') !== round) continue;
+      for (const sumStyle of def.preset.kind === 'sum' ? Object.keys(SUM_STYLES) : [undefined]) {
+        const el = { type, ...clone(def.preset), ...base, ...(sumStyle ? { sumStyle } : {}),
+          label: PH[0], label2: PH[1], signW: PH[2], signN: PH[3], signS: PH[4] };
+        el.shadow = !!find(blockTex({ ...el, shadow: true }, T0, new Set())[0]);
+        let score = 0;
+        for (const line of blockTex(el, T0, new Set())) {
+          const hit = find(line);
+          if (PH.some((c) => line.includes(c))) {
+            if (hit) score += 3 + (unmath(hit.text) === unmath(def.preset.label || '') ? 1 : 0);
+          } else score += hit ? 10 : -10;
+        }
+        for (const k of ['fill', 'dashed', 'rounded', 'shadow', 'w', 'h']) if (el[k] === (def.preset[k] ?? false)) score += 0.5;
+        if (!best || score > best.score) best = { el, score };
+      }
+    }
+    const el = add(best.el.type, best.el);
+    for (const k of ['label', 'label2', 'signW', 'signN', 'signS']) el[k] = '';
+    claim(blockTex(best.el, T0, new Set()), el, ['label', 'label2', 'signW', 'signN', 'signS'],
+      (t, f) => (f.startsWith('sign') ? (unmath(t) === '-' ? '-' : unmath(t) === '+' ? '+' : '') : t.trim()));
+    if (!el.color) delete el.color;
+  }
+
+  // Transformers
+  for (const st of free((s) => s.cmd === 'pic' && s.text.trim() === 'fig-transformer')) {
+    st.used = true;
+    const rot = ((Math.round(-(parseFloat(optVal(st.opts, 'rotate')) || 0) / 90) % 4) + 4) % 4;
+    const el = add('xfmr', { a: C0(st.at), ...(rot ? { rot } : {}), color: colorOf(st.opts) });
+    claim(xfmrLabelTex({ ...el, label: PH[0] }, T0, colorTex(el)), el, ['label']);
+  }
+
+  // Two-terminal parts drawn as pics, with their leads
+  const isLine = (s, opts) => s.cmd === 'draw' && s.opts === opts && polyOf(s)?.length === 2;
+  const findLead = (E, dir, opts) => {
+    for (const s of free((q) => isLine(q, opts))) {
+      const [p, q] = ptsOf(s);
+      for (const [e, o] of [[p, q], [q, p]]) {
+        const v = sub(o, e);
+        if (near(e, E) && len2(v) > 1e-6 && Math.abs(v[0] * dir[1] - v[1] * dir[0]) < 1e-3 && v[0] * dir[0] + v[1] * dir[1] > 0) {
+          return { s, P: o };
+        }
+      }
+    }
+    return null;
+  };
+  for (const st of free((s) => s.cmd === 'pic')) {
+    const type = Object.keys(TYPES).find((t) => TYPES[t].pic === st.text.trim());
+    if (!type) continue;
+    st.used = true;
+    const ang = (parseFloat(optVal(st.opts, 'rotate')) || 0) * Math.PI / 180;
+    const s = parseFloat(optVal(st.opts, 'scale')) || 1;
+    const u = [Math.cos(ang), Math.sin(ang)], hw = PICS[TYPES[type].pic].hw * U_CM * s;
+    const E0 = [st.at[0] - u[0] * hw, st.at[1] - u[1] * hw], E1 = [st.at[0] + u[0] * hw, st.at[1] + u[1] * hw];
+    const col = colorOf(st.opts), o = col ? COLORS[col].tex : '';
+    const l0 = findLead(E0, [-u[0], -u[1]], o), l1 = l0 && findLead(E1, u, o);
+    if (l0 && l1) { l0.s.used = true; l1.s.used = true; }
+    const A = l0 && l1 ? l0.P : E0, B = l0 && l1 ? l1.P : E1;
+    const el = add(type, {
+      a: C0(A), b: C0(B), color: col, ...sizeField(l0 && l1 ? s : Math.max(1, s)),
+      ...(/yscale\s*=\s*-1/.test(st.opts) ? { mirror: true } : {}),
+    });
+    const ph = { ...el, label: PH[0], value: PH[1] };
+    const lines = picTex(ph, A, B).filter((l) => l.startsWith('\\node'));
+    const pos = lines.find((l) => l.includes(PH[0])), neg = lines.find((l) => l.includes(PH[1]));
+    const sp = take(pos), sn = take(neg);
+    if (sp) { el.label = unmath(sp.text); if (sn) el.value = unmath(sn.text); }
+    else if (sn) { el.label = unmath(sn.text); el.flip = true; }
+  }
+
+  // Arrows: a head (filled triangle, stealth or open) plus a straight stem
+  const L = ARROW_HEAD.len, W = ARROW_HEAD.half;
+  const heads = [];
+  for (const st of free((s) => s.cmd === 'fill' || s.cmd === 'draw')) {
+    let pts, shape, tip, dir, unit;
+    if (st.cmd === 'fill' && (pts = polyOf(st, true))?.length === 3) {
+      const mid = [(pts[1][0] + pts[2][0]) / 2, (pts[1][1] + pts[2][1]) / 2];
+      const l = len2(sub(pts[0], mid)), hh = len2(sub(pts[1], pts[2])) / 2;
+      if (l < 1e-4) continue;
+      tip = pts[0]; dir = sub(pts[0], mid).map((v) => v / l);
+      if (Math.abs(l - SIG_HEAD.len) < 0.006 && Math.abs(hh - SIG_HEAD.half) < 0.006) shape = 'sig';
+      else if (Math.abs(hh / l - W / L) < 0.02) { shape = 'tri'; unit = l / L; }
+    } else if (st.cmd === 'fill' && (pts = polyOf(st, true))?.length === 4) {
+      const l = len2(sub(pts[0], pts[2]));
+      if (l < 1e-4) continue;
+      unit = l / (0.65 * L);
+      if (Math.abs(len2(sub(pts[1], pts[3])) / 2 - 1.35 * W * unit) < 0.01) {
+        shape = 'stealth'; tip = pts[0]; dir = sub(pts[0], pts[2]).map((v) => v / l);
+      }
+    } else if (st.cmd === 'draw' && (pts = polyOf(st))?.length === 3) {
+      const mid = [(pts[0][0] + pts[2][0]) / 2, (pts[0][1] + pts[2][1]) / 2];
+      const l = len2(sub(pts[1], mid)), hh = len2(sub(pts[0], pts[2])) / 2;
+      if (l > 1e-4 && Math.abs(hh / l - 1.3 * W / L) < 0.02
+        && Math.abs(len2(sub(pts[0], pts[1])) - len2(sub(pts[2], pts[1]))) < TEX_TOL * 2) {
+        shape = 'open'; tip = pts[1]; dir = sub(pts[1], mid).map((v) => v / l); unit = l / L;
+      }
+    }
+    if (shape) heads.push({ st, shape, tip, dir, unit });
+  }
+  const freeHead = (pred) => heads.find((h) => !h.st.used && pred(h));
+  for (const h of heads.filter((q) => q.shape !== 'sig')) {
+    if (h.st.used) continue;
+    const back = ARROW_ENDS[h.shape].back * h.unit;
+    const S = [h.tip[0] - h.dir[0] * back, h.tip[1] - h.dir[1] * back];
+    const stem = findLead(S, [-h.dir[0], -h.dir[1]], h.st.opts);
+    if (!stem) continue;
+    h.st.used = true;
+    stem.s.used = true;
+    const E = stem.P;
+    const h2 = freeHead((q) => q.shape === h.shape && Math.abs(q.unit - h.unit) < 1e-3
+      && near([q.tip[0] - q.dir[0] * back, q.tip[1] - q.dir[1] * back], E));
+    if (h2) h2.st.used = true;
+    const A = h2 ? h2.tip : E;
+    const col = colorOf(h.st.opts);
+    const el = add('varrow', {
+      a: C0(A), b: C0(h.tip), color: col, arrowHead: h.shape, arrowEnds: h2 ? 'both' : 'end',
+      ...sizeField(h.unit / U_CM),
+    });
+    for (const flip of [false, true]) {
+      const line = arrowTex({ ...el, flip, label: PH[0] }, A, h.tip).find((l) => l.includes(PH[0]));
+      const s = take(line);
+      if (s) { el.label = unmath(s.text); el.flip = flip; break; }
+    }
+  }
+
+  // Signals: a polyline whose end stops half a head short of a signal arrowhead
+  const signalEnd = (h) => [h.tip[0] - h.dir[0] * SIG_HEAD.len / 2, h.tip[1] - h.dir[1] * SIG_HEAD.len / 2];
+  for (const h of heads.filter((q) => q.shape === 'sig')) {
+    if (h.st.used) continue;
+    const S = signalEnd(h);
+    const line = free((s) => s.cmd === 'draw' && s.opts === h.st.opts && (polyOf(s)?.length || 0) >= 2)
+      .find((s) => { const p = ptsOf(s); return near(p[p.length - 1], S) || near(p[0], S); });
+    if (!line) continue;
+    line.used = true;
+    h.st.used = true;
+    const pts = ptsOf(line);
+    const atEnd = near(pts[pts.length - 1], S), other = atEnd ? 0 : pts.length - 1;
+    pts[atEnd ? pts.length - 1 : 0] = h.tip;
+    const h2 = freeHead((q) => q.shape === 'sig' && q.st.opts === h.st.opts && near(signalEnd(q), pts[other]));
+    if (h2) { h2.st.used = true; pts[other] = h2.tip; }
+    const col = colorOf(line.opts);
+    add('wire', {
+      a: C0(pts[0]), b: C0(pts[pts.length - 1]), ...(pts.length > 2 ? { via: pts.slice(1, -1).map(C0) } : {}),
+      term: h2 ? '<->' : atEnd ? '->' : '<-', color: col,
+    });
+  }
+
+  // Ground-style nodes, junction dots and open terminals
+  for (const st of free((s) => s.cmd === 'draw' && s.path?.length === 2 && s.path[0].t === 'pt' && s.path[1].t === 'node')) {
+    const name = splitTop(st.path[1].opts, ',')[0];
+    const type = Object.keys(TYPES).find((t) => TYPES[t].node && TYPES[t].tikz && TYPES[t].tikz === name);
+    if (!type) continue;
+    st.used = true;
+    const rot = ((Math.round(-(parseFloat(optVal(st.path[1].opts, 'rotate')) || 0) / 90) % 4) + 4) % 4;
+    add(type, { a: C0(st.path[0].p), color: colorOf(st.opts), ...(rot ? { rot } : {}),
+      ...sizeField(parseFloat(optVal(st.path[1].opts, 'scale')) || 1) });
+  }
+  for (const st of free((s) => s.path?.length === 2 && s.path[0].t === 'pt' && s.path[1].t === 'circle')) {
+    const ring = st.cmd === 'draw' && optVal(st.opts, 'fill') === 'white';
+    if (!ring && (st.cmd !== 'fill' || optVal(st.opts, 'fill') !== null)) continue;
+    st.used = true;
+    const el = add(ring ? 'ocirc' : 'circ', { a: C0(st.path[0].p), color: colorOf(st.opts),
+      ...sizeField(st.path[1].r / ((ring ? RING_R : DOT_R) * U_CM)) });
+    claim(dotLabelTex({ ...el, label: PH[0] }, T0, colorTex(el)), el, ['label']);
+  }
+
+  // Wires and circuitikz bipoles: `(p) -- (q) to[R, l=..] (r) ...`
+  const TIKZ_TYPES = {
+    ...Object.fromEntries(Object.entries(TYPES).filter(([, d]) => d.tikz && !d.node).map(([k, d]) => [d.tikz, k])),
+    // Parts drawn as custom pics, typed with their usual circuitikz names
+    C: 'C', capacitor: 'C', L: 'L', inductor: 'L', 'cute inductor': 'L', sV: 'sV', 'sinusoidal voltage source': 'sV',
+    resistor: 'R', diode: 'D', 'voltage source': 'V', 'current source': 'I',
+  };
+  for (const st of free((s) => s.cmd === 'draw' && s.path?.[0]?.t === 'pt'
+    && s.path.every((q, i) => (i % 2 ? q.t === '--' || q.t === 'to' : q.t === 'pt')) && s.path.length % 2 === 1)) {
+    st.used = true;
+    const col = colorOf(st.opts);
+    const blen = parseFloat(optVal(st.opts, 'circuitikz/bipoles/length'));
+    let run = [st.path[0].p];
+    const flushRun = () => {
+      if (run.length > 1) {
+        add('wire', { a: C0(run[0]), b: C0(run[run.length - 1]), color: col,
+          ...(run.length > 2 ? { via: run.slice(1, -1).map(C0) } : {}) });
+      }
+    };
+    for (let k = 1; k < st.path.length; k += 2) {
+      const seg = st.path[k], p = st.path[k + 1].p;
+      if (seg.t === '--') { run.push(p); continue; }
+      flushRun();
+      const from = run[run.length - 1];
+      run = [p];
+      const [name, ...rest] = splitTop(seg.opts, ',');
+      const type = TIKZ_TYPES[name];
+      if (!type) { out.skipped.push(`to[${seg.opts}]`); continue; }
+      const f = {};
+      for (const o of rest) {
+        const m = /^([a-z_^]+)\s*=\s*([\s\S]*)$/.exec(o);
+        if (!m) continue;
+        const v = unmath(unbrace(m[2].trim()));
+        if (m[1] === 'l' || m[1] === 'l_') { f.label = v; if (m[1] === 'l_') f.flip = true; }
+        else if (m[1] === 'a' || m[1] === 'a^') { f.value = v; if (m[1] === 'a^') f.flip = true; }
+        else if (m[1] === 'i') f.current = v;
+        else if (m[1] === 'v') f.voltage = v;
+      }
+      add(type, { a: C0(from), b: C0(p), color: col, ...f,
+        ...(type !== 'wire' && blen > 0 ? sizeField(blen / CTZ_BIPOLE_CM) : {}) });
+    }
+    flushRun();
+  }
+
+  // Wire labels sit beside the first segment
+  for (const el of els) {
+    if (el.type !== 'wire' || el.label) continue;
+    claim(wireLabelTex({ ...el, label: PH[0] }, T0, colorTex(el)), el, ['label']);
+  }
+
+  // Remaining nodes become free text labels
+  for (const st of free((s) => s.cmd === 'node')) {
+    st.used = true;
+    add('text', { a: C0(st.at), label: st.text.trim(), color: colorOf(st.opts),
+      ...sizeField(parseFloat(optVal(st.opts, 'scale')) || 1) });
+  }
+
+  out.skipped.push(...free(() => true).map((s) => s.src));
+  for (const el of els) if (!el.color) delete el.color;
+  out.elements = els;
+  return out;
+}
+
+// Places parsed elements on the canvas, keeping the current drawing's position when there is one.
+function placeParsed(els) {
+  if (!els.length) return els;
+  const o = state.elements.length ? texOrigin(state.elements) : null;
+  const b = texOrigin(els);
+  const allPts = els.flatMap((e) => [...elPoints(e), ...(e.via || [])]);
+  const minY = Math.min(...allPts.map((p) => p.y));
+  let dx = o ? o.x - b.x : 1 - b.x, dy = o ? o.y - b.y : 1 - minY;
+  // Keep a margin from the canvas edge, moving by whole centimetres so parts stay on the grid.
+  if (b.x + dx < 0.5) dx = Math.ceil(1 - b.x - 1e-9);
+  if (minY + dy < 0.5) dy = Math.ceil(1 - minY - 1e-9);
+  const mv = (p) => ({ x: r4(p.x + dx), y: r4(p.y + dy) });
+  return els.map((e, i) => ({
+    ...e, id: i + 1, a: mv(e.a), ...(e.b ? { b: mv(e.b) } : {}), ...(e.via ? { via: e.via.map(mv) } : {}),
+  }));
 }
 
 // ---------------------------------------------------------------- properties panel
@@ -2201,7 +2707,7 @@ document.addEventListener('keydown', (e) => {
   // Dropdowns and checkboxes have no undo of their own, so only text fields keep Ctrl+Z.
   const textEntry = document.activeElement?.matches?.('textarea, input[type="text"], input[type="number"]');
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
-    if (textEntry) return;
+    if (textEntry || codeEdit) return;
     e.preventDefault();
     undo();
     return;
@@ -2212,7 +2718,7 @@ document.addEventListener('keydown', (e) => {
     else setZoom(e.key === '-' ? zoom / ZOOM_STEP : zoom * ZOOM_STEP);
     return;
   }
-  if (typing || e.ctrlKey || e.metaKey || e.altKey) return;
+  if (typing || codeEdit || e.ctrlKey || e.metaKey || e.altKey) return;
   if (e.shiftKey && e.key.toLowerCase() === 'r') {
     rotateSelected();
     return;
@@ -2339,6 +2845,95 @@ $('btn-download').addEventListener('click', () => {
   a.download = 'circuit.tex';
   a.click();
   URL.revokeObjectURL(url);
+});
+
+// ---------------------------------------------------------------- editing the LaTeX code
+let codeTimer = null;
+
+function setCodeStatus(msg, kind = '') {
+  const p = $('code-status');
+  p.hidden = !msg;
+  p.textContent = msg;
+  p.className = `code-status ${kind}`;
+}
+
+function setCodeEditing(on) {
+  document.body.classList.toggle('code-editing', on);
+  codeEl.readOnly = !on;
+  $('code-actions').hidden = on;
+  $('code-edit-actions').hidden = !on;
+  $('btn-code-edit').hidden = on;
+}
+
+function startCodeEdit() {
+  if (codeEdit) return;
+  setTool('select');
+  select(null);
+  codeEdit = { src: codeEl.value, state: JSON.stringify(state), settings: { ...settings } };
+  setCodeEditing(true);
+  setCodeStatus('The diagram follows your edits as you type. Done (Ctrl+Enter) keeps them, Cancel (Esc) restores the diagram.');
+  codeEl.focus();
+}
+
+function restoreFromCodeEdit() {
+  state = JSON.parse(codeEdit.state);
+  Object.assign(settings, codeEdit.settings);
+  syncSettingsUI();
+}
+
+// Rebuilds the circuit from the code; returns false (and shows why) if the code can't be read.
+function applyCode() {
+  clearTimeout(codeTimer);
+  if (codeEl.value === codeEdit.src) {
+    restoreFromCodeEdit();
+    renderCanvas();
+    setCodeStatus('No changes.');
+    return true;
+  }
+  const r = parseTex(codeEl.value);
+  if (r.error) { setCodeStatus(r.error, 'error'); return false; }
+  state.elements = placeParsed(r.elements);
+  state.nextId = state.elements.length + 1;
+  selectedId = null;
+  pending = null;
+  Object.assign(settings, r.settings);
+  syncSettingsUI();
+  renderCanvas();
+  save();
+  const n = r.skipped.length, count = state.elements.length;
+  const skipped = n ? `\nSkipped ${n} unrecognised statement${n > 1 ? 's' : ''}: `
+    + r.skipped.slice(0, 3).map((s) => (s.length > 60 ? `${s.slice(0, 60)}…` : s)).join('  |  ') + (n > 3 ? '  …' : '') : '';
+  setCodeStatus(`${count} part${count === 1 ? '' : 's'} on the canvas.${skipped}`, n ? 'warn' : '');
+  return true;
+}
+
+function endCodeEdit(keep) {
+  if (!codeEdit) return;
+  if (keep) {
+    if (!applyCode()) return;
+    if (JSON.stringify(state) !== codeEdit.state) pushHistory(codeEdit.state);
+  } else {
+    restoreFromCodeEdit();
+  }
+  clearTimeout(codeTimer);
+  codeEdit = null;
+  setCodeEditing(false);
+  setCodeStatus('');
+  refresh();
+}
+
+$('btn-code-edit').addEventListener('click', startCodeEdit);
+$('btn-code-done').addEventListener('click', () => endCodeEdit(true));
+$('btn-code-cancel').addEventListener('click', () => endCodeEdit(false));
+codeEl.addEventListener('input', () => {
+  if (!codeEdit) return;
+  clearTimeout(codeTimer);
+  codeTimer = setTimeout(applyCode, 400);
+});
+codeEl.addEventListener('keydown', (e) => {
+  if (!codeEdit) return;
+  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); endCodeEdit(true); }
+  else if (e.key === 'Escape') { e.preventDefault(); endCodeEdit(false); }
 });
 
 // ---------------------------------------------------------------- diagram export
@@ -2689,16 +3284,20 @@ function load() {
 }
 
 // ---------------------------------------------------------------- init
+function syncSettingsUI() {
+  $('opt-style').value = settings.style;
+  $('opt-doc').value = settings.fullDoc ? 'full' : 'env';
+  $('opt-scale').value = settings.scale;
+  $('opt-autolabel').checked = settings.autoLabel;
+  syncLineWidthUI();
+  $('opt-grid').value = String(settings.gridStep);
+  $('opt-align').checked = settings.alignAssist;
+  applyGrid();
+  applyLineWidth();
+}
+
 load();
-$('opt-style').value = settings.style;
-$('opt-doc').value = settings.fullDoc ? 'full' : 'env';
-$('opt-scale').value = settings.scale;
-$('opt-autolabel').checked = settings.autoLabel;
-syncLineWidthUI();
-$('opt-grid').value = String(settings.gridStep);
-$('opt-align').checked = settings.alignAssist;
-applyGrid();
-applyLineWidth();
+syncSettingsUI();
 buildPalette();
 setTool('select');
 refresh();

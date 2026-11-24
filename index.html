@@ -108,11 +108,19 @@
       </section>
 
       <section class="card code-card">
-        <h2>LaTeX code</h2>
+        <div class="card-head">
+          <h2>LaTeX code</h2>
+          <button id="btn-code-edit" title="Edit the code; the diagram follows your changes">Edit code</button>
+        </div>
         <textarea id="code" readonly spellcheck="false" aria-label="Generated LaTeX code"></textarea>
-        <div class="row">
+        <p id="code-status" class="code-status" hidden></p>
+        <div class="row" id="code-actions">
           <button id="btn-copy" class="primary">Copy code</button>
           <button id="btn-download">Download .tex</button>
+        </div>
+        <div class="row" id="code-edit-actions" hidden>
+          <button id="btn-code-done" class="primary" title="Keep the changes (Ctrl+Enter)">Done</button>
+          <button id="btn-code-cancel" title="Discard the changes (Esc)">Cancel</button>
         </div>
       </section>
 
