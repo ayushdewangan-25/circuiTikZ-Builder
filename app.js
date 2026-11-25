@@ -3048,6 +3048,7 @@ window.addEventListener('mouseup', () => {
 });
 
 document.addEventListener('keydown', (e) => {
+  if (helpDialog.open) return;
   const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName || '');
   // Dropdowns and checkboxes have no undo of their own, so only text fields keep Ctrl+Z.
   const textEntry = document.activeElement?.matches?.('textarea, input[type="text"], input[type="number"]');
@@ -3072,6 +3073,11 @@ document.addEventListener('keydown', (e) => {
     if (k === 'v' && clipboard) { e.preventDefault(); paste(); return; }
   }
   if (typing || codeEdit || e.ctrlKey || e.metaKey || e.altKey) return;
+  if (e.key === '?') {
+    e.preventDefault();
+    openHelp();
+    return;
+  }
   const ARROWS = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
   if (ARROWS[e.key] && selIds().length && !drag) {
     e.preventDefault();
@@ -3114,6 +3120,94 @@ document.addEventListener('keydown', (e) => {
 });
 
 // ---------------------------------------------------------------- top bar, settings, output
+// Keyboard shortcut list. Keys are space-separated tokens; mouse actions are shown as plain words.
+const HELP_MOUSE = new Set(['click', 'drag', 'double-click', 'right-click', 'wheel']);
+const HELP = [
+  ['General', [
+    [['?'], 'Show this list'],
+    [['Ctrl Z'], 'Undo'],
+    [['Ctrl Y', 'Ctrl Shift Z'], 'Redo'],
+    [['Space'], 'Fit the circuit to the view'],
+    [['Ctrl +', 'Ctrl -'], 'Zoom in / out'],
+    [['Ctrl 0'], 'Zoom to 100%'],
+    [['Ctrl wheel'], 'Zoom around the pointer'],
+    [['Esc'], 'Cancel the current action, then back to the Select tool'],
+  ]],
+  ['Selecting', [
+    [['click'], 'Select a part'],
+    [['Shift click', 'Ctrl click'], 'Add / remove a part from the selection'],
+    [['drag'], 'On empty canvas: select everything inside the box'],
+    [['Shift drag', 'Ctrl drag'], 'On empty canvas: add the box to the selection'],
+    [['Ctrl A'], 'Select everything'],
+    [['Alt click'], 'Select the part underneath (e.g. a highlight under a wire)'],
+  ]],
+  ['Editing', [
+    [['drag'], 'Move the selection (attached wires follow)'],
+    [['←', '↑', '→', '↓'], 'Move the selection by one grid step'],
+    [['Ctrl drag'], 'Drag out a copy of the part / selection'],
+    [['Ctrl C', 'Ctrl X', 'Ctrl V'], 'Copy / cut / paste'],
+    [['Shift R'], 'Rotate the selected part 90°'],
+    [['[', ']'], 'Shrink / grow the selected part'],
+    [['Del', 'Backspace'], 'Delete the selection'],
+  ]],
+  ['Drawing', [
+    [['click'], 'Place a part / set the start and end points'],
+    [['right-click', 'Esc'], 'Stop drawing wires / cancel a placement'],
+    [['double-click', 'Enter', 'right-click'], 'Finish a signal arrow or highlight'],
+  ]],
+  ['Editing the LaTeX code', [
+    [['Ctrl Enter'], 'Done: keep the changes'],
+    [['Esc'], 'Cancel: restore the diagram'],
+  ]],
+];
+
+const helpDialog = $('help-dialog');
+
+function renderHelp() {
+  const body = $('help-body');
+  const tools = [[['S'], 'Select'], ...Object.values(TYPES).filter((d) => d.key)
+    .map((d) => [[d.key.toUpperCase()], d.name])];
+  const sections = [...HELP.slice(0, 4), ['Tools', tools], ...HELP.slice(4)];
+  body.replaceChildren(...sections.map(([title, rows]) => {
+    const sec = document.createElement('section');
+    sec.className = 'help-section';
+    const h = document.createElement('h3');
+    h.textContent = title;
+    const table = document.createElement('table');
+    for (const [combos, text] of rows) {
+      const tr = table.insertRow();
+      const keys = tr.insertCell();
+      combos.forEach((combo, i) => {
+        if (i) keys.append(' / ');
+        combo.split(' ').forEach((tok, j) => {
+          if (j) keys.append(' + ');
+          const k = document.createElement(HELP_MOUSE.has(tok) ? 'span' : 'kbd');
+          if (HELP_MOUSE.has(tok)) k.className = 'muted';
+          k.textContent = tok;
+          keys.append(k);
+        });
+      });
+      tr.insertCell().textContent = text;
+    }
+    sec.append(h, table);
+    return sec;
+  }));
+}
+
+function openHelp() {
+  if (helpDialog.open) return;
+  if (!$('help-body').childElementCount) renderHelp();
+  helpDialog.showModal();
+}
+
+$('btn-help').addEventListener('click', openHelp);
+$('help-close').addEventListener('click', () => helpDialog.close());
+helpDialog.addEventListener('click', (e) => { if (e.target === helpDialog) helpDialog.close(); });
+// Close on Esc explicitly; the native dialog behaviour can be suppressed by the browser's anti-abuse rules.
+helpDialog.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' || e.key === '?') { e.preventDefault(); helpDialog.close(); }
+});
+
 $('btn-undo').addEventListener('click', undo);
 $('btn-redo').addEventListener('click', redo);
 

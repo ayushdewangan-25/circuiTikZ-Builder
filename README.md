@@ -74,8 +74,11 @@ The MOSFET, bidirectional switch, BDS common drain, GaN BDS, GaNFET, transformer
 
 ## Keyboard shortcuts
 
+Press `?` or click **Shortcuts** in the top bar to see the full list inside the app.
+
 | Key | Action |
 |---|---|
+| `?` | Show the shortcut list |
 | `S` | Select tool |
 | `W` | Wire |
 | `R` / `C` / `L` | Resistor / capacitor / inductor |
