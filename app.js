@@ -370,6 +370,7 @@ const history = [];
 const future = [];  // states undone, for redo; cleared by any new change
 let tool = 'select';
 let selectedId = null;
+const multiSel = new Set(); // ids when several parts are selected; selectedId is then null
 let pending = null;   // first click of a two-terminal element
 let sigPts = null;    // points of a signal arrow being drawn
 let hover = null;
@@ -386,6 +387,8 @@ const codeEl = $('code');
 
 const samePt = (p, q) => !!p && !!q && p.x === q.x && p.y === q.y;
 const getSel = () => state.elements.find((e) => e.id === selectedId) || null;
+const selIds = () => (selectedId != null ? [selectedId] : [...multiSel]);
+const isSelected = (el) => el.id === selectedId || multiSel.has(el.id);
 
 function svgNode(tag, attrs = {}) {
   const n = document.createElementNS(SVGNS, tag);
@@ -967,7 +970,9 @@ function drawElement(el, selected, ghost = false) {
 }
 
 function renderCanvas() {
-  layerEls.replaceChildren(...orderedElements().map((el) => drawElement(el, el.id === selectedId)));
+  if (selectedId != null) multiSel.clear();
+  for (const id of multiSel) if (!state.elements.some((e) => e.id === id)) multiSel.delete(id);
+  layerEls.replaceChildren(...orderedElements().map((el) => drawElement(el, isSelected(el))));
   renderOverlay();
 }
 
@@ -999,6 +1004,13 @@ function renderOverlay() {
     items.push(drawElement({ type: tool, a: pending, b: hover }, false, true));
   }
   if (pending) items.push(svgNode('circle', { class: 'pending-dot', cx: pending.x * GRID, cy: pending.y * GRID, r: 5 }));
+  if (drag?.mode === 'box') {
+    const { start: s, cur: c } = drag;
+    items.push(svgNode('rect', {
+      class: 'marquee', x: Math.min(s.x, c.x) * GRID, y: Math.min(s.y, c.y) * GRID,
+      width: Math.abs(c.x - s.x) * GRID, height: Math.abs(c.y - s.y) * GRID,
+    }));
+  }
   if (hover) items.push(svgNode('circle', { class: 'cursor-dot', cx: hover.x * GRID, cy: hover.y * GRID, r: 7 }));
   if (sel && tool === 'select' && sel.b) {
     for (const k of ['a', 'b']) {
@@ -1922,6 +1934,10 @@ function fieldsFor(el) {
 function renderProps() {
   propsBody.replaceChildren();
   const el = getSel();
+  if (!el && multiSel.size > 1) {
+    renderMultiProps();
+    return;
+  }
   if (!el) {
     const p = document.createElement('p');
     p.className = 'muted note';
@@ -2126,6 +2142,41 @@ function renderProps() {
   del.addEventListener('click', deleteSelected);
   row.append(del);
   propsBody.append(row);
+}
+
+function renderMultiProps() {
+  const els = state.elements.filter(isSelected);
+  const title = document.createElement('div');
+  title.className = 'props-title';
+  title.textContent = `${els.length} parts selected`;
+  const note = document.createElement('p');
+  note.className = 'muted note';
+  note.textContent = 'Drag one of them or use the arrow keys to move them together. Shift+click or Ctrl+click adds or removes a part; Ctrl+C / Ctrl+V copy and paste; Del deletes.';
+  const label = document.createElement('label');
+  const span = document.createElement('span');
+  span.textContent = 'Colour';
+  const sel = document.createElement('select');
+  for (const [value, name] of [['', '(keep as is)'], ...Object.entries(COLORS).map(([k, c]) => [k, c.name])]) {
+    const o = document.createElement('option');
+    o.value = value;
+    o.textContent = name;
+    sel.append(o);
+  }
+  sel.addEventListener('change', () => {
+    if (!sel.value) return;
+    snapshot();
+    for (const e of els) if (e.type !== 'hl') e.color = sel.value;
+    refresh();
+  });
+  label.append(span, sel);
+  const row = document.createElement('div');
+  row.className = 'row';
+  const del = document.createElement('button');
+  del.className = 'danger';
+  del.textContent = 'Delete all';
+  del.addEventListener('click', deleteSelected);
+  row.append(del);
+  propsBody.append(title, note, label, row);
 }
 
 // ---------------------------------------------------------------- editing
@@ -2356,23 +2407,88 @@ function rotateSelected() {
 }
 
 function deleteSelected() {
-  if (selectedId == null) return;
+  const ids = new Set(selIds());
+  if (!ids.size) return;
   snapshot();
-  state.elements = state.elements.filter((e) => e.id !== selectedId);
-  selectedId = null;
+  state.elements = state.elements.filter((e) => !ids.has(e.id));
+  setSel([]);
   refresh();
+}
+
+// ---------------------------------------------------------------- moving several parts
+// The parts to move (group boxes take their contents along) and the wires to re-route.
+function movePlan(ids) {
+  const set = new Set(ids);
+  for (const g of state.elements) {
+    if (!set.has(g.id) || g.kind !== 'group') continue;
+    for (const e of state.elements) {
+      if (e !== g && [...elPoints(e), ...(e.via || [])].every((q) => insideBlock(g, q))) set.add(e.id);
+    }
+  }
+  const moved = state.elements.filter((e) => set.has(e.id));
+  const wires = new Map();
+  for (const el of moved) {
+    for (const at of attachedWires(el, elPoints(el))) {
+      if (set.has(at.w.id)) continue;
+      const m = wires.get(at.w.id) || { w: at.w, ends: new Set(), orig: at.orig };
+      at.ends.forEach((k) => m.ends.add(k));
+      wires.set(at.w.id, m);
+    }
+  }
+  return {
+    moved: moved.map((e) => ({ e, orig: clone({ a: e.a, b: e.b, via: e.via }) })),
+    attached: [...wires.values()].map((m) => ({ w: m.w, ends: [...m.ends], orig: m.orig })),
+  };
+}
+
+function applyMove(plan, dx, dy) {
+  const map = (q) => ({ x: q.x + dx, y: q.y + dy });
+  for (const { e, orig } of plan.moved) {
+    e.a = map(orig.a);
+    if (orig.b) e.b = map(orig.b);
+    if (orig.via) e.via = orig.via.map(map);
+  }
+  followWires(plan.attached, map);
+}
+
+const planPoints = (plan) => plan.moved.flatMap(({ e }) => [...elPoints(e), ...(e.via || [])]);
+
+// Arrow keys: move the selection one grid step; a burst of presses is a single undo step.
+let lastNudge = 0;
+function nudge(sx, sy) {
+  const ids = selIds();
+  if (!ids.length) return;
+  const plan = movePlan(ids), pts = planPoints(plan), step = settings.gridStep;
+  const dx = Math.max(sx * step, -Math.min(...pts.map((q) => q.x)));
+  const dy = Math.max(sy * step, -Math.min(...pts.map((q) => q.y)));
+  if (!dx && !dy) return;
+  if (Date.now() - lastNudge > 1000) snapshot();
+  lastNudge = Date.now();
+  applyMove(plan, dx, dy);
+  dropEmptyWires();
+  refresh();
+}
+
+function startMoveDrag(ids, p) {
+  const plan = movePlan(ids);
+  drag = { mode: 'multi', start: p, plan, snap: JSON.stringify(state), moved: false, bounds: planPoints(plan) };
 }
 
 // ---------------------------------------------------------------- copy, paste and Ctrl+drag cloning
 let clipboard = null; // { items, last: anchor of the latest placement, cursor: pointer at that time }
 
-// The selected part plus, for a group box, everything lying fully inside it.
-function selectionItems() {
-  const el = getSel();
-  if (!el) return [];
-  const inside = el.kind !== 'group' ? [] : state.elements.filter((e) => e !== el
-    && [...elPoints(e), ...(e.via || [])].every((q) => insideBlock(el, q)));
-  return [el, ...inside];
+// The selected parts plus, for group boxes, everything lying fully inside them.
+function selectionItems(ids = selIds()) {
+  const set = new Set(ids);
+  for (const g of state.elements) {
+    if (!set.has(g.id) || g.kind !== 'group') continue;
+    for (const e of state.elements) {
+      if (e !== g && [...elPoints(e), ...(e.via || [])].every((q) => insideBlock(g, q))) set.add(e.id);
+    }
+  }
+  // Selected parts first, so the first one anchors a paste.
+  return [...ids, ...[...set].filter((id) => !ids.includes(id))]
+    .map((id) => state.elements.find((e) => e.id === id)).filter(Boolean);
 }
 
 // Adds shifted copies of `items` to the circuit; auto-numbered labels get the next free number.
@@ -2401,7 +2517,7 @@ function cutSelection() {
   copySelection();
   snapshot();
   state.elements = state.elements.filter((e) => !items.includes(e));
-  selectedId = null;
+  setSel([]);
   refresh();
 }
 
@@ -2418,25 +2534,45 @@ function paste() {
   clipboard.cursor = hover;
   snapshot();
   const copies = addCopies(items, dx, dy);
-  selectedId = copies[0].id;
+  setSel(copies.map((c) => c.id));
   refresh();
 }
 
-// Ctrl+drag: drop a copy in place and drag the copy, leaving the original (and its wires) untouched.
+// Ctrl+drag: drop copies in place and drag them, leaving the originals (and their wires) untouched.
+// Ctrl+click without dragging adds or removes the part from the selection instead.
 function startCloneDrag(id, p) {
-  select(id);
+  const prev = selIds();
+  const ids = prev.length > 1 && prev.includes(id) ? prev : [id];
   const snap = JSON.stringify(state);
-  const copies = addCopies(selectionItems(), 0, 0);
-  select(copies[0].id);
-  startDrag('move', p);
-  const carried = copies.slice(1).map((e) => ({ e, orig: clone({ a: e.a, b: e.b, via: e.via }) }));
-  Object.assign(drag, {
-    snap, clone: id, attached: [], carried,
-    bounds: [...copies.flatMap((e) => [...elPoints(e), ...(e.via || [])])],
-  });
+  const items = selectionItems(ids);
+  const copies = addCopies(items, 0, 0);
+  const copyOf = new Map(items.map((e, i) => [e.id, copies[i].id]));
+  setSel(ids.map((i) => copyOf.get(i)));
+  const plan = { moved: copies.map((e) => ({ e, orig: clone({ a: e.a, b: e.b, via: e.via }) })), attached: [] };
+  drag = { mode: 'multi', start: p, plan, snap, moved: false, clone: { id, prev }, bounds: planPoints(plan) };
+  renderCanvas();
+  renderProps();
 }
 
+function setSel(ids) {
+  multiSel.clear();
+  selectedId = ids.length === 1 ? ids[0] : null;
+  if (ids.length > 1) ids.forEach((id) => multiSel.add(id));
+}
+
+function setSelection(ids) {
+  setSel(ids);
+  renderCanvas();
+  renderProps();
+}
+
+const toggleSelected = (id) => {
+  const ids = selIds();
+  setSelection(ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]);
+};
+
 function select(id) {
+  multiSel.clear();
   selectedId = id;
   renderCanvas();
   renderProps();
@@ -2458,7 +2594,7 @@ function loadTemplate(name) {
       ...(isNode ? b : extra),
     });
   }
-  selectedId = null;
+  setSel([]);
   pending = null;
   const tplSettings = TEMPLATE_SETTINGS[name];
   if (tplSettings) {
@@ -2473,7 +2609,7 @@ function loadTemplate(name) {
 
 // ---------------------------------------------------------------- tools & palette
 const HINTS = {
-  select: 'Click to select, drag to move (Ctrl+drag copies), drag the blue handles to stretch. Shift+R rotates, [ ] resize, Ctrl+C / Ctrl+V copy and paste, Del deletes.',
+  select: 'Click to select, drag to move (Ctrl+drag copies), drag on empty space to box-select, Shift/Ctrl+click adds to the selection. Arrow keys move, Shift+R rotates, [ ] resize, Ctrl+C / Ctrl+V copy and paste, Del deletes.',
   node: 'Click a grid point to place.',
   bipole: 'Click the start point, then the end point. Right-click / Esc cancels.',
   wire: 'Click points to draw connected wires. Right-click / Esc to stop.',
@@ -2637,9 +2773,9 @@ scroller.addEventListener('wheel', (e) => {
 // ---------------------------------------------------------------- mouse & keyboard
 // Terminal points other parts can line up with; the element being dragged is left out.
 function alignAnchors() {
-  const skip = new Set(drag
-    ? [selectedId, ...drag.attached.map((at) => at.w.id), ...drag.carried.map((c) => c.e.id)]
-    : []);
+  const skip = new Set(!drag ? []
+    : drag.plan ? drag.plan.moved.map((m) => m.e.id)
+      : drag.attached ? [selectedId, ...drag.attached.map((at) => at.w.id), ...drag.carried.map((c) => c.e.id)] : []);
   const pts = state.elements.filter((e) => !skip.has(e.id)).flatMap(elPoints);
   if (sigPts) pts.push(...sigPts);
   if (pending) pts.push(pending);
@@ -2647,12 +2783,11 @@ function alignAnchors() {
 }
 
 function eventToGrid(e) {
-  const r = svg.getBoundingClientRect();
-  const raw = { x: (e.clientX - r.left) / (GRID * zoom), y: (e.clientY - r.top) / (GRID * zoom) };
+  const raw = eventToCm(e);
   const step = settings.gridStep;
   const p = { x: Math.round(raw.x / step) * step, y: Math.round(raw.y / step) * step };
   // Pull towards nearby terminal coordinates, which may be off-grid after switching grid size.
-  if (settings.alignAssist && drag?.mode !== 'move') {
+  if (settings.alignAssist && !['move', 'multi', 'box'].includes(drag?.mode)) {
     const tol = 8 / (GRID * zoom);
     const anchors = alignAnchors();
     for (const k of ['x', 'y']) {
@@ -2666,9 +2801,15 @@ function eventToGrid(e) {
   return { x: Math.max(0, p.x), y: Math.max(0, p.y) };
 }
 
+function eventToCm(e) {
+  const r = svg.getBoundingClientRect();
+  return { x: (e.clientX - r.left) / (GRID * zoom), y: (e.clientY - r.top) / (GRID * zoom) };
+}
+
 function alignGuides() {
   const sel = getSel();
   let active;
+  if (drag && (drag.mode === 'multi' || drag.mode === 'box')) return [];
   if (drag && sel) active = drag.mode === 'move' ? elPoints(sel) : [sel[drag.mode]];
   else if (hover && tool !== 'select') active = [hover];
   else return [];
@@ -2765,11 +2906,21 @@ svg.addEventListener('mousedown', (e) => {
       startCloneDrag(Number(g.dataset.id), p);
       return;
     }
+    if (g && e.shiftKey) {
+      toggleSelected(Number(g.dataset.id));
+      return;
+    }
     if (g) {
-      select(Number(g.dataset.id));
+      const id = Number(g.dataset.id);
+      if (multiSel.has(id)) { startMoveDrag([...multiSel], p); return; }
+      select(id);
       startDrag('move', p);
     } else {
-      select(null);
+      // Empty canvas: drag out a selection box (with Ctrl/Shift it adds to the selection).
+      const add = e.ctrlKey || e.metaKey || e.shiftKey;
+      if (!add) select(null);
+      const c = eventToCm(e);
+      drag = { mode: 'box', start: c, cur: c, add, prev: selIds() };
     }
     return;
   }
@@ -2807,6 +2958,24 @@ svg.addEventListener('contextmenu', (e) => {
 
 window.addEventListener('mousemove', (e) => {
   if (!drag) return;
+  if (drag.mode === 'box') {
+    drag.cur = eventToCm(e);
+    renderOverlay();
+    return;
+  }
+  if (drag.mode === 'multi') {
+    const p = eventToGrid(e);
+    const dx = Math.max(p.x - drag.start.x, -Math.min(...drag.bounds.map((q) => q.x)));
+    const dy = Math.max(p.y - drag.start.y, -Math.min(...drag.bounds.map((q) => q.y)));
+    if (dx === (drag.dx ?? 0) && dy === (drag.dy ?? 0)) return;
+    if (!drag.moved) { pushHistory(drag.snap); drag.moved = true; }
+    drag.dx = dx;
+    drag.dy = dy;
+    applyMove(drag.plan, dx, dy);
+    renderCanvas();
+    renderCode();
+    return;
+  }
   const el = getSel();
   if (!el) return;
   const p = eventToGrid(e);
@@ -2840,13 +3009,27 @@ window.addEventListener('mousemove', (e) => {
 
 window.addEventListener('mouseup', () => {
   if (!drag) return;
+  if (drag.mode === 'box') {
+    const { start: s, cur: c, add, prev } = drag;
+    drag = null;
+    const x0 = Math.min(s.x, c.x), x1 = Math.max(s.x, c.x), y0 = Math.min(s.y, c.y), y1 = Math.max(s.y, c.y);
+    if (x1 - x0 > 0.05 || y1 - y0 > 0.05) {
+      const inBox = (q) => q.x >= x0 && q.x <= x1 && q.y >= y0 && q.y <= y1;
+      const hit = state.elements.filter((el) => [...elPoints(el), ...(el.via || [])].every(inBox)).map((el) => el.id);
+      setSelection(add ? [...new Set([...prev, ...hit])] : hit);
+    } else {
+      renderOverlay();
+    }
+    return;
+  }
   const el = getSel();
   if (drag.clone && !drag.moved) {
-    // Ctrl+click without dragging: no copy, just select the original.
+    // Ctrl+click without dragging: no copy; add or remove the part from the selection.
     state = JSON.parse(drag.snap);
-    selectedId = drag.clone;
-    renderCanvas();
-    renderProps();
+    const { id, prev } = drag.clone;
+    drag = null;
+    setSelection(prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
+    return;
   } else if (el && el.b && !el.via && samePt(el.a, el.b)) {
     // Collapsed to zero length: cancel the whole drag, including any wires that followed.
     state = JSON.parse(drag.snap);
@@ -2882,11 +3065,19 @@ document.addEventListener('keydown', (e) => {
   }
   if ((e.ctrlKey || e.metaKey) && !e.altKey && !typing && !codeEdit) {
     const k = e.key.toLowerCase();
-    if (k === 'c' && selectedId != null) { e.preventDefault(); copySelection(); return; }
-    if (k === 'x' && selectedId != null) { e.preventDefault(); cutSelection(); return; }
+    const any = selIds().length > 0;
+    if (k === 'a') { e.preventDefault(); setTool('select'); setSelection(state.elements.map((x) => x.id)); return; }
+    if (k === 'c' && any) { e.preventDefault(); copySelection(); return; }
+    if (k === 'x' && any) { e.preventDefault(); cutSelection(); return; }
     if (k === 'v' && clipboard) { e.preventDefault(); paste(); return; }
   }
   if (typing || codeEdit || e.ctrlKey || e.metaKey || e.altKey) return;
+  const ARROWS = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
+  if (ARROWS[e.key] && selIds().length && !drag) {
+    e.preventDefault();
+    nudge(...ARROWS[e.key]);
+    return;
+  }
   if (e.shiftKey && e.key.toLowerCase() === 'r') {
     rotateSelected();
     return;
@@ -2911,7 +3102,7 @@ document.addEventListener('keydown', (e) => {
     else { setTool('select'); select(null); }
     return;
   }
-  if ((e.key === 'Delete' || e.key === 'Backspace') && selectedId != null) {
+  if ((e.key === 'Delete' || e.key === 'Backspace') && selIds().length) {
     e.preventDefault();
     deleteSelected();
     return;
@@ -2930,7 +3121,7 @@ $('btn-clear').addEventListener('click', () => {
   if (!state.elements.length || !confirm('Clear the whole circuit?')) return;
   snapshot();
   state.elements = [];
-  selectedId = null;
+  setSel([]);
   pending = null;
   refresh();
 });
@@ -3063,7 +3254,7 @@ function applyCode() {
   if (r.error) { setCodeStatus(r.error, 'error'); return false; }
   state.elements = placeParsed(r.elements);
   state.nextId = state.elements.length + 1;
-  selectedId = null;
+  setSel([]);
   pending = null;
   Object.assign(settings, r.settings);
   syncSettingsUI();

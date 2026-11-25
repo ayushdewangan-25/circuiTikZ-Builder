@@ -23,6 +23,8 @@ You can also host the folder on any static web server, such as GitHub Pages.
 - **Alignment assist:** dashed guides appear when a terminal lines up with another one. A green ring shows when you land exactly on an existing terminal. Points snap to nearby terminals.
 - **Wires follow moved parts:** when you move or rotate a component, wires attached to its terminals stay connected. They are re-routed with right-angle bends that avoid running along other wires.
 - **Editing:** select, drag to move, drag the end handles to stretch, rotate 90°, reverse direction, mirror, delete, undo and redo.
+- **Selecting several parts:** drag a box on empty canvas, or `Shift`/`Ctrl`+click parts to add or remove them (`Ctrl`+`A` selects everything). Drag any selected part or use the arrow keys to move them together; attached wires follow. Copy, paste, delete and colour apply to the whole selection.
+- **Arrow keys** move the selection by one grid step.
 - **Copy and paste:** `Ctrl`+`C` / `Ctrl`+`X` / `Ctrl`+`V`. A paste lands at the mouse pointer, or 1 cm down-right of the previous one if the pointer hasn't moved. `Ctrl`+drag a part to drop a copy of it, as in Simulink. Copying a group box copies everything inside it, and numbered labels (`R_1`, `C_2`, …) get the next free number.
 - **Zoom:** buttons, `Ctrl` + mouse wheel or trackpad pinch, keyboard shortcuts, and *Fit* (or `Space`) to show the whole circuit.
 
@@ -90,8 +92,11 @@ The MOSFET, bidirectional switch, BDS common drain, GaN BDS, GaNFET, transformer
 | `Delete` / `Backspace` | Delete selected part |
 | `Ctrl` + `Z` | Undo |
 | `Ctrl` + `Y` or `Ctrl` + `Shift` + `Z` | Redo |
-| `Ctrl` + `C` / `X` / `V` | Copy / cut / paste the selected part |
-| `Ctrl` + drag | Drag out a copy of a part |
+| `Ctrl` + `C` / `X` / `V` | Copy / cut / paste the selection |
+| `Ctrl` + drag | Drag out a copy of a part (or of the whole selection) |
+| `Shift` / `Ctrl` + click | Add a part to / remove it from the selection |
+| `Ctrl` + `A` | Select everything |
+| `←` `↑` `→` `↓` | Move the selection by one grid step |
 | `Ctrl` + `+` / `-` / `0` | Zoom in / out / reset |
 | `Space` | Fit the circuit to the view |
 | `Alt` + click | Select the part underneath (e.g. a highlight under a wire) |

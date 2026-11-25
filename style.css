@@ -174,6 +174,7 @@ select, input[type="text"], input[type="number"] {
 #layer-overlay .guide { stroke: #e0249a; stroke-width: 1; stroke-dasharray: 5 4; vector-effect: non-scaling-stroke; }
 #layer-overlay .guide-pt { fill: #e0249a; }
 #layer-overlay .snap-ring { fill: none; stroke: #18a058; stroke-width: 2; vector-effect: non-scaling-stroke; }
+#layer-overlay .marquee { fill: rgba(26, 115, 232, 0.08); stroke: var(--accent); stroke-width: 1; stroke-dasharray: 4 3; vector-effect: non-scaling-stroke; }
 .ghost-el { opacity: .45; }
 .cursor-dot { fill: none; stroke: var(--accent); stroke-width: 1.5; }
 .pending-dot { fill: var(--accent); }
