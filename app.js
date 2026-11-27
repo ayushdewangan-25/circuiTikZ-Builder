@@ -360,12 +360,14 @@ TEMPLATES.foc = [
 let state = { elements: [], nextId: 1 };
 const settings = {
   style: 'american', fullDoc: true, scale: 1, autoLabel: true, lineWidth: 0.8, gridStep: 1,
-  alignAssist: true,
+  alignAssist: true, crossStyle: 'none',
 };
 const LINE_WIDTHS = [0.4, 0.6, 0.8, 1, 1.2];
 const LW_MIN = 0.1, LW_MAX = 5;
-// Element coordinates are stored in cm; these steps are exact in binary floating point.
-const GRID_STEPS = [1, 0.5, 0.25];
+// Element coordinates are stored in cm. Steps like 0.1 aren't exact in binary floating point,
+// so computed positions go through snapV to keep equal points comparing equal.
+const GRID_STEPS = [1, 0.5, 0.25, 0.2, 0.15, 0.1];
+const snapV = (v) => Math.round(v * 1e4) / 1e4 + 0;
 const history = [];
 const future = [];  // states undone, for redo; cleared by any new change
 let tool = 'select';
@@ -917,7 +919,12 @@ function drawElement(el, selected, ghost = false) {
     const P = [el.a, ...(el.via || []), el.b].map((q) => ({ x: q.x * GRID, y: q.y * GRID }));
     const pts = P.map((q) => `${q.x},${q.y}`).join(' ');
     const [ts, te] = (el.term || '-').split('-');
-    inner.innerHTML = `<polyline class="hit" points="${pts}"/><polyline points="${pts}"/>`
+    const marks = !ghost && crossMap.get(el.id);
+    const line = marks
+      ? `<path d="${svgOps(crossOps(P.map((q) => [q.x, q.y]),
+        marks.map((m) => ({ ...m, p: [m.p.x * GRID, m.p.y * GRID] })), -1, CROSS_R * GRID))}"/>`
+      : `<polyline points="${pts}"/>`;
+    inner.innerHTML = `<polyline class="hit" points="${pts}"/>${line}`
       + termMark(ts, ax, ay) + termMark(te, bx, by)
       + (te === '>' ? arrowHeadSvg(P[P.length - 1], P[P.length - 2]) : '')
       + (ts === '<' ? arrowHeadSvg(P[0], P[1]) : '');
@@ -972,6 +979,7 @@ function drawElement(el, selected, ghost = false) {
 function renderCanvas() {
   if (selectedId != null) multiSel.clear();
   for (const id of multiSel) if (!state.elements.some((e) => e.id === id)) multiSel.delete(id);
+  crossMap = wireCrossings();
   layerEls.replaceChildren(...orderedElements().map((el) => drawElement(el, isSelected(el))));
   renderOverlay();
 }
@@ -1189,14 +1197,14 @@ function headTex(tip, from, k, o) {
   return `\\fill${o} ${pt(tip)} -- ${pt(along(base, n, w))} -- ${pt(along(base, n, -w))} -- cycle;`;
 }
 
-function signalTex(el, T, o) {
+function signalTex(el, T, o, marks) {
   const pts = [el.a, ...(el.via || []), el.b].map(T);
   const [ts, te] = (el.term || '-').split('-');
   const n = pts.length, line = pts.slice();
   // Stop the line inside the head so its round cap doesn't poke out of the tip.
   if (te === '>') line[n - 1] = along(pts[n - 1], frame(pts[n - 2], pts[n - 1]).u, -SIG_HEAD.len / 2);
   if (ts === '<') line[0] = along(pts[0], frame(pts[1], pts[0]).u, -SIG_HEAD.len / 2);
-  const out = [`\\draw${o} ${line.map(pt).join(' -- ')};`];
+  const out = [`\\draw${o} ${marks ? tikzOps(crossOps(line, marks, 1, CROSS_R)) : line.map(pt).join(' -- ')};`];
   if (te === '>') out.push(headTex(pts[n - 1], pts[n - 2], 1, o));
   if (ts === '<') out.push(headTex(pts[0], pts[1], 1, o));
   return out;
@@ -1307,6 +1315,7 @@ function generateTex() {
     };
     const push = (lines) => body.push(...lines.map((l) => '  ' + l));
     const labels = [];
+    const crossings = wireCrossings();
     for (const el of orderedElements()) {
       const def = TYPES[el.type];
       const col = colorTex(el);
@@ -1345,9 +1354,15 @@ function generateTex() {
       if (ts === '*' || ts === 'o') markers.push(markerTex(ts, A, col));
       if (te === '*' || te === 'o') markers.push(markerTex(te, B, col));
       if (el.type === 'wire') labels.push(...wireLabelTex(el, T, col));
+      const marks = el.type === 'wire' && crossings.get(el.id)?.map((m) => ({ ...m, p: T(m.p) }));
       if (el.type === 'wire' && (ts === '<' || te === '>')) {
         flush();
-        push(signalTex(el, T, col ? `[${col}]` : ''));
+        push(signalTex(el, T, col ? `[${col}]` : '', marks));
+        continue;
+      }
+      if (marks) {
+        flush();
+        push([`\\draw${col ? `[${col}]` : ''} ${tikzOps(crossOps([el.a, ...(el.via || []), el.b].map(T), marks, 1, CROSS_R))};`]);
         continue;
       }
       if (def.pic) {
@@ -1515,7 +1530,9 @@ function parseStmt(src) {
       if (!Number.isFinite(+t[1]) || !Number.isFinite(+t[2])) return null;
       st.path.push({ t: 'pt', p: [+t[1], +t[2]] });
     } else if ((t = /^--\s*cycle\b/.exec(r))) st.path.push({ t: 'cycle' });
-    else if ((t = /^--/.exec(r))) st.path.push({ t: '--' });
+    else if ((t = /^\.\.\s*controls\s*\(\s*([-\d.]+)\s*,\s*([-\d.]+)\s*\)\s*and\s*\(\s*([-\d.]+)\s*,\s*([-\d.]+)\s*\)\s*\.\./.exec(r))) {
+      st.path.push({ t: 'ctrl', c: [[+t[1], +t[2]], [+t[3], +t[4]]] });
+    } else if ((t = /^--/.exec(r))) st.path.push({ t: '--' });
     else if ((t = /^rectangle\b/.exec(r))) st.path.push({ t: 'rect' });
     else if ((t = /^circle\s*\(\s*([-\d.]+)\s*\)/.exec(r))) st.path.push({ t: 'circle', r: +t[1] });
     else if ((t = /^(to|node)\s*\[/.exec(r))) {
@@ -1547,6 +1564,7 @@ function signStmt(st) {
     key += st.path.map((q) => {
       if (q.t === 'pt') { nums.push(...q.p); return 'P'; }
       if (q.t === 'circle') { nums.push(q.r); return 'C'; }
+      if (q.t === 'ctrl') { nums.push(...q.c[0], ...q.c[1]); return 'ctrl'; }
       if (q.t === 'to' || q.t === 'node') return `${q.t}[${norm(q.opts)}]`;
       return q.t;
     }).join(' ');
@@ -1570,6 +1588,43 @@ function polyOf(st, cycle = false) {
   for (; i + 1 < p.length && p[i].t === '--' && p[i + 1].t === 'pt'; i += 2);
   if (cycle ? !(i === p.length - 1 && p[i].t === 'cycle') : i !== p.length) return null;
   return ptsOf(st);
+}
+
+// Turns a wire drawn with crossing marks (hops / gaps, as this app writes them) back into a plain
+// polyline statement. Returns 'hop' or 'gap' if it removed any marks.
+function unmarkCrossings(st) {
+  const p = st.path;
+  if (st.cmd !== 'draw' || !p?.some((q, i) => q.t === 'ctrl' || (q.t === 'pt' && p[i - 1]?.t === 'pt'))) return null;
+  const pts = [];
+  let style = null;
+  for (let i = 0; i < p.length; i++) {
+    const q = p[i];
+    if (q.t !== 'pt') {
+      if (q.t !== '--' && q.t !== 'ctrl') return null;
+      continue;
+    }
+    if (p[i - 1]?.t === 'ctrl' && p[i + 1]?.t === 'ctrl') { style = 'hop'; continue; } // top of a hop
+    if (p[i - 1]?.t === 'pt') {
+      // A move along the line, exactly one gap long, is a gap mark.
+      const last = pts[pts.length - 1], before = pts[pts.length - 2];
+      const v = sub(last, before || last), w = sub(q.p, last);
+      if (!before || Math.abs(len2(w) - 2 * CROSS_R) > 0.01 || Math.abs(v[0] * w[1] - v[1] * w[0]) > 1e-6) return null;
+      style = style || 'gap';
+    }
+    pts.push(q.p);
+  }
+  // Drop the points on either side of each mark (they're collinear with their neighbours).
+  const clean = [];
+  for (const q of pts) {
+    if (clean.length >= 2) {
+      const a = clean[clean.length - 2], b = clean[clean.length - 1];
+      if (Math.abs((b[0] - a[0]) * (q[1] - b[1]) - (b[1] - a[1]) * (q[0] - b[0])) < 1e-9) clean.pop();
+    }
+    clean.push(q);
+  }
+  st.path = clean.flatMap((q, i) => (i ? [{ t: '--' }, { t: 'pt', p: q }] : [{ t: 'pt', p: q }]));
+  signStmt(st);
+  return style;
 }
 
 function parseTex(src) {
@@ -1602,6 +1657,10 @@ function parseTex(src) {
   for (const s of splitTop(body, ';')) {
     const st = parseStmt(s.replace(/\s+/g, ' ').trim());
     if (st) stmts.push(st); else out.skipped.push(s.trim());
+  }
+  for (const st of stmts) {
+    const style = unmarkCrossings(st);
+    if (style === 'hop' || (style === 'gap' && !out.settings.crossStyle)) out.settings.crossStyle = style;
   }
 
   const els = [];
@@ -2065,6 +2124,9 @@ function renderProps() {
     const terms = el.type === 'wire' ? WIRE_TERMINALS : TERMINALS;
     addSelect('term', el.type === 'wire' ? 'Ends' : 'Terminals', terms.map((t) => [t, t || 'none']));
   }
+  if (el.type === 'wire') {
+    addSelect('cross', 'At crossings', [['', 'Auto (horizontal on top)'], ['over', 'On top'], ['under', 'Underneath']]);
+  }
   if (def.block) {
     const syncRound = () => { if (isRound(el)) el.h = el.w; };
     addNum('w', isRound(el) ? 'Diameter (cm)' : 'Width (cm)', 0.25, 40, 0.25, syncRound);
@@ -2306,7 +2368,10 @@ function route(F, M, oF, oM, obs) {
   const step = settings.gridStep;
   const lo = Math.min(F[k], M[k]), hi = Math.max(F[k], M[k]), mid = (lo + hi) / 2;
   const interior = [];
-  for (let v = Math.floor(lo / step) * step + step; v < hi - 1e-9; v += step) if (v > lo + 1e-9) interior.push(v);
+  for (let i = Math.floor(lo / step + 1e-9) + 1; i * step < hi - 1e-9; i++) {
+    const v = snapV(i * step);
+    if (v > lo + 1e-9) interior.push(v);
+  }
   interior.sort((p, q) => Math.abs(p - mid) - Math.abs(q - mid) || Math.abs(p - M[k]) - Math.abs(q - M[k]));
   for (const v of [...interior, F[k], M[k]]) {
     if (!blocked(simplify([F, ...make(v), M]), obs)) return make(v);
@@ -2362,6 +2427,73 @@ function rerouteWire(w, o, ends, map) {
 }
 
 const followWires = (list, map) => list.forEach((at) => rerouteWire(at.w, at.orig, at.ends, map));
+
+// ---------------------------------------------------------------- wire crossings
+const CROSS_R = 0.12; // cm: hop radius, and half the length of a gap
+const CROSS_STYLES = { none: 'Plain', gap: 'Gap in the lower wire', hop: 'Hop over' };
+let crossMap = new Map();
+
+// Unconnected crossings of wires: wire id -> marks [{ seg, p, kind: 'hop' | 'gap' }] to draw on it.
+// A crossing with a junction dot on it is a connection, so it gets no mark.
+function wireCrossings() {
+  const out = new Map();
+  const style = settings.crossStyle;
+  if (style !== 'gap' && style !== 'hop') return out;
+  const segs = { h: [], v: [] };
+  // Wires with a current arrow keep circuitikz's own path, so they aren't marked.
+  for (const w of state.elements.filter((e) => e.type === 'wire' && !e.current?.trim())) {
+    const L = [w.a, ...(w.via || []), w.b];
+    for (let i = 0; i < L.length - 1; i++) {
+      const o = orient(L[i], L[i + 1]);
+      if (o !== 'd') segs[o].push({ w, i, p: L[i], q: L[i + 1] });
+    }
+  }
+  const dots = state.elements.filter((e) => e.type === 'circ').map((e) => e.a);
+  const inside = (v, a, b) => v > Math.min(a, b) + CROSS_R - 1e-9 && v < Math.max(a, b) - CROSS_R + 1e-9;
+  const add = (w, seg, p, over) => {
+    const kind = style === 'hop' ? (over ? 'hop' : null) : (over ? null : 'gap');
+    if (!kind) return;
+    if (!out.has(w.id)) out.set(w.id, []);
+    out.get(w.id).push({ seg, p, kind });
+  };
+  for (const H of segs.h) {
+    for (const V of segs.v) {
+      if (H.w === V.w) continue;
+      const p = { x: V.p.x, y: H.p.y };
+      if (!inside(p.x, H.p.x, H.q.x) || !inside(p.y, V.p.y, V.q.y) || dots.some((d) => samePt(d, p))) continue;
+      const hOver = H.w.cross === 'over' || V.w.cross === 'under' ? true
+        : H.w.cross === 'under' || V.w.cross === 'over' ? false : true;
+      add(H.w, H.i, p, hOver);
+      add(V.w, V.i, p, !hOver);
+    }
+  }
+  return out;
+}
+
+// Path operations for a polyline with crossing marks. `up` is the y sign of "up" in the target
+// coordinates; hops on horizontal wires bulge up, hops on vertical wires bulge right.
+function crossOps(pts, marks, up, R) {
+  const k = 0.5523 * R; // cubic handle length for a quarter circle
+  const ops = [['M', pts[0]]];
+  for (let i = 0; i < pts.length - 1; i++) {
+    const a = pts[i], b = pts[i + 1], len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    const u = [(b[0] - a[0]) / len, (b[1] - a[1]) / len];
+    const n = Math.abs(u[1]) < 1e-9 ? [0, up] : [1, 0];
+    const at = (p, s, t = 0) => [p[0] + u[0] * s + n[0] * t, p[1] + u[1] * s + n[1] * t];
+    const dist = (m) => Math.hypot(m.p[0] - a[0], m.p[1] - a[1]);
+    for (const { p, kind } of marks.filter((m) => m.seg === i).sort((m1, m2) => dist(m1) - dist(m2))) {
+      ops.push(['L', at(p, -R)]);
+      if (kind === 'gap') ops.push(['M', at(p, R)]);
+      else ops.push(['C', at(p, -R, k), at(p, -k, R), at(p, 0, R)], ['C', at(p, k, R), at(p, R, k), at(p, R)]);
+    }
+    ops.push(['L', b]);
+  }
+  return ops;
+}
+
+const svgOps = (ops) => ops.map(([t, ...ps]) => t + ps.map((q) => `${fmt(q[0])} ${fmt(q[1])}`).join(' ')).join(' ');
+const tikzOps = (ops) => ops.map(([t, ...ps], i) => (t === 'M' ? `${i ? ' ' : ''}${pt(ps[0])}`
+  : t === 'L' ? ` -- ${pt(ps[0])}` : ` .. controls ${pt(ps[0])} and ${pt(ps[1])} .. ${pt(ps[2])}`)).join('');
 const dropEmptyWires = () => {
   state.elements = state.elements.filter((e) => !(e.type === 'wire' && !e.via && samePt(e.a, e.b)));
 };
@@ -2377,7 +2509,7 @@ function rotateSelected() {
     // Turn about the midpoint; fall back to the start terminal if that would leave the grid.
     const about = (c) => (q) => {
       const d = rot90({ x: q.x - c.x, y: q.y - c.y }, 1);
-      return { x: c.x + d.x, y: c.y + d.y };
+      return { x: snapV(c.x + d.x), y: snapV(c.y + d.y) };
     };
     let t = about({ x: (el.a.x + el.b.x) / 2, y: (el.a.y + el.b.y) / 2 });
     if (!onGrid(t(el.a))) t = about(el.a);
@@ -2442,7 +2574,7 @@ function movePlan(ids) {
 }
 
 function applyMove(plan, dx, dy) {
-  const map = (q) => ({ x: q.x + dx, y: q.y + dy });
+  const map = (q) => ({ x: snapV(q.x + dx), y: snapV(q.y + dy) });
   for (const { e, orig } of plan.moved) {
     e.a = map(orig.a);
     if (orig.b) e.b = map(orig.b);
@@ -2493,7 +2625,7 @@ function selectionItems(ids = selIds()) {
 
 // Adds shifted copies of `items` to the circuit; auto-numbered labels get the next free number.
 function addCopies(items, dx, dy) {
-  const mv = (q) => ({ x: q.x + dx, y: q.y + dy });
+  const mv = (q) => ({ x: snapV(q.x + dx), y: snapV(q.y + dy) });
   return items.map((e) => {
     const c = { ...clone(e), id: state.nextId++, a: mv(e.a) };
     if (e.b) c.b = mv(e.b);
@@ -2785,7 +2917,7 @@ function alignAnchors() {
 function eventToGrid(e) {
   const raw = eventToCm(e);
   const step = settings.gridStep;
-  const p = { x: Math.round(raw.x / step) * step, y: Math.round(raw.y / step) * step };
+  const p = { x: snapV(Math.round(raw.x / step) * step), y: snapV(Math.round(raw.y / step) * step) };
   // Pull towards nearby terminal coordinates, which may be off-grid after switching grid size.
   if (settings.alignAssist && !['move', 'multi', 'box'].includes(drag?.mode)) {
     const tol = 8 / (GRID * zoom);
@@ -2850,7 +2982,7 @@ function applyGrid() {
   const pattern = $('grid');
   pattern.setAttribute('width', s);
   pattern.setAttribute('height', s);
-  const r = s < 20 ? 1.1 : 1.6;
+  const r = s < 8 ? 0.7 : s < 20 ? 1.1 : 1.6;
   pattern.innerHTML = [[0, 0], [s, 0], [0, s], [s, s]]
     .map(([cx, cy]) => `<circle cx="${cx}" cy="${cy}" r="${r}" fill="#c3cad4"/>`).join('');
 }
@@ -2983,7 +3115,7 @@ window.addEventListener('mousemove', (e) => {
   if (drag.mode === 'move') {
     const ddx = Math.max(p.x - drag.start.x, -Math.min(...drag.bounds.map((q) => q.x)));
     const ddy = Math.max(p.y - drag.start.y, -Math.min(...drag.bounds.map((q) => q.y)));
-    map = (q) => ({ x: q.x + ddx, y: q.y + ddy });
+    map = (q) => ({ x: snapV(q.x + ddx), y: snapV(q.y + ddy) });
     na = map(drag.a);
     if (drag.b) nb = map(drag.b);
   } else {
@@ -3245,6 +3377,12 @@ $('opt-autolabel').addEventListener('change', (e) => {
   settings.autoLabel = e.target.checked;
   save();
 });
+$('opt-cross').addEventListener('change', (e) => {
+  settings.crossStyle = e.target.value;
+  renderCanvas();
+  renderCode();
+  save();
+});
 $('opt-linewidth').addEventListener('change', (e) => {
   const custom = $('opt-linewidth-custom');
   if (e.target.value === 'custom') {
@@ -3413,6 +3551,7 @@ function renderForExport() {
   const host = svgNode('svg', { width: CANVAS_W, height: CANVAS_H });
   host.setAttribute('style', 'position:absolute;left:-100000px;top:0');
   const layer = svgNode('g');
+  crossMap = wireCrossings();
   for (const el of orderedElements()) layer.appendChild(drawElement(el, false));
   host.appendChild(layer);
   document.body.appendChild(host);
@@ -3713,6 +3852,7 @@ function load() {
         ...((e.type === 'wire' || e.type === 'hl') && Array.isArray(e.via) && e.via.length && e.via.length <= 32 && e.via.every(isPt)
           ? { via: e.via.map((q) => ({ x: q.x, y: q.y })) } : {}),
         ...(e.color in COLORS ? { color: e.color } : {}),
+        ...(e.type === 'wire' && (e.cross === 'over' || e.cross === 'under') ? { cross: e.cross } : {}),
         ...(TYPES[e.type].block ? blockFields(e) : {}),
         ...(TYPES[e.type].arrow ? {
           arrowHead: e.arrowHead in ARROW_ENDS ? e.arrowHead : 'tri',
@@ -3735,6 +3875,7 @@ function load() {
   if (typeof s.lineWidth === 'number' && s.lineWidth >= LW_MIN && s.lineWidth <= LW_MAX) settings.lineWidth = s.lineWidth;
   if (GRID_STEPS.includes(s.gridStep)) settings.gridStep = s.gridStep;
   if (typeof s.alignAssist === 'boolean') settings.alignAssist = s.alignAssist;
+  if (s.crossStyle in CROSS_STYLES) settings.crossStyle = s.crossStyle;
 }
 
 // ---------------------------------------------------------------- init
@@ -3743,6 +3884,7 @@ function syncSettingsUI() {
   $('opt-doc').value = settings.fullDoc ? 'full' : 'env';
   $('opt-scale').value = settings.scale;
   $('opt-autolabel').checked = settings.autoLabel;
+  $('opt-cross').value = settings.crossStyle;
   syncLineWidthUI();
   $('opt-grid').value = String(settings.gridStep);
   $('opt-align').checked = settings.alignAssist;

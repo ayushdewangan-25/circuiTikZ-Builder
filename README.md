@@ -19,9 +19,10 @@ You can also host the folder on any static web server, such as GitHub Pages.
 
 ### Drawing
 - **Grid editor:** click a start point and an end point to place a component. Wires keep connecting from point to point until you press `Esc` or right-click.
-- **Grid size:** 1 cm, 0.5 cm or 0.25 cm. One grid step equals the same distance in the generated LaTeX.
+- **Grid size:** 1, 0.5, 0.25, 0.2, 0.15 or 0.1 cm. One grid step equals the same distance in the generated LaTeX.
 - **Alignment assist:** dashed guides appear when a terminal lines up with another one. A green ring shows when you land exactly on an existing terminal. Points snap to nearby terminals.
 - **Wires follow moved parts:** when you move or rotate a component, wires attached to its terminals stay connected. They are re-routed with right-angle bends that avoid running along other wires.
+- **Wire crossings** (*Output settings → Wire crossings*): wires that cross without connecting can be marked automatically with a **gap** in the lower wire or a **hop** (small semicircle) in the upper one. Horizontal wires go on top by default; each wire's *At crossings* option can put it on top or underneath. A junction dot on a crossing means the wires connect, so it gets no mark. The marks follow when you move things and appear in the LaTeX and in every export.
 - **Editing:** select, drag to move, drag the end handles to stretch, rotate 90°, reverse direction, mirror, delete, undo and redo.
 - **Selecting several parts:** drag a box on empty canvas, or `Shift`/`Ctrl`+click parts to add or remove them (`Ctrl`+`A` selects everything). Drag any selected part or use the arrow keys to move them together; attached wires follow. Copy, paste, delete and colour apply to the whole selection.
 - **Arrow keys** move the selection by one grid step.
