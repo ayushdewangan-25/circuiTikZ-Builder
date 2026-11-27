@@ -113,9 +113,21 @@ kbd {
 .layout {
   flex: 1;
   display: grid;
-  grid-template-columns: 230px 1fr 380px;
+  grid-template-columns: 230px minmax(0, 1fr) auto var(--side-w, 380px);
   min-height: 0;
 }
+
+.splitter {
+  width: 6px;
+  margin: 0 -3px;
+  z-index: 2;
+  cursor: col-resize;
+  background: transparent;
+  transition: background .15s;
+}
+.splitter:hover, .splitter:focus-visible, .splitter.dragging { background: var(--accent); outline: none; }
+body.resizing { cursor: col-resize; user-select: none; }
+body.resizing #canvas { pointer-events: none; }
 
 /* ---------- Palette ---------- */
 .palette {
@@ -312,5 +324,6 @@ kbd {
     grid-template-rows: calc(100vh - 52px) auto;
   }
   .palette .group { grid-template-columns: 1fr; }
+  .splitter { display: none; }
   .side { grid-column: 1 / -1; overflow: visible; border-left: none; border-top: 1px solid var(--border); }
 }

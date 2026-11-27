@@ -218,7 +218,7 @@ const TEMPLATES = {
 // Settings a template applies along with its circuit, so it opens with the intended look.
 const TEMPLATE_SETTINGS = {
   dab: { lineWidth: 1, gridStep: 0.5 },
-  dabgan: { lineWidth: 1, gridStep: 0.5 },
+  dabgan: { lineWidth: 1.2, gridStep: 0.25, crossStyle: 'gap' },
   ctrlsps: { lineWidth: 0.8, gridStep: 0.25 },
   foc: { lineWidth: 0.8, gridStep: 0.25 },
 };
@@ -246,8 +246,8 @@ TEMPLATES.dabgan = [
     .map((p) => ['circ', p]),
   ...[
     [[1, 1], [5, 1]], [[1, 10], [5, 10]], [[3, 3.5], [3, 7.5]], [[5, 3.5], [5, 7.5]],
-    [[3, 4], [6, 4]], [[8, 4], [9, 4]], [[5, 7], [9, 7]], [[10, 4], [12, 4]], [[10, 7], [14, 7]],
-    [[12, 4], [12, 7.5]], [[14, 3.5], [14, 7.5]], [[12, 1], [18, 1]], [[12, 10], [18, 10]],
+    [[8, 4], [9, 4]], [[5, 7], [9, 7]], [[10, 4], [12, 4]], [[10, 7], [14, 7]],
+    [[14, 3.5], [14, 7.5]], [[12, 1], [18, 1]], [[12, 10], [18, 10]],
     [[3, 1], [3, 1.5]], [[5, 1], [5, 1.5]], [[3, 9.5], [3, 10]], [[5, 9.5], [5, 10]],
     [[14, 1], [14, 1.5]], [[12, 9.5], [12, 10]], [[14, 9.5], [14, 10]],
     [[3, 1.5], [3, 2]], [[3, 3], [3, 3.5]], [[5, 1.5], [5, 2]], [[5, 3], [5, 3.5]],
@@ -255,6 +255,9 @@ TEMPLATES.dabgan = [
     [[12, 1], [12, 2]], [[12, 7.5], [12, 8]], [[12, 9], [12, 9.5]], [[14, 7.5], [14, 8]],
     [[14, 9], [14, 9.5]], [[14, 1.5], [14, 2]], [[14, 3], [14, 3.5]], [[12, 3], [12, 4]],
   ].map(([a, b]) => ['wire', a, b]),
+  // Each crosses another wire without connecting; `cross` sets which of the two is drawn on top.
+  ['wire', [3, 4], [6, 4], { cross: 'under' }],
+  ['wire', [12, 4], [12, 7.5], { cross: 'over' }],
   ['text', [18, 2], { label: '$+$' }],
   ['text', [18, 9], { label: '$-$' }],
 ];
@@ -360,7 +363,7 @@ TEMPLATES.foc = [
 let state = { elements: [], nextId: 1 };
 const settings = {
   style: 'american', fullDoc: true, scale: 1, autoLabel: true, lineWidth: 0.8, gridStep: 1,
-  alignAssist: true, crossStyle: 'none',
+  alignAssist: true, crossStyle: 'none', sideWidth: 380,
 };
 const LINE_WIDTHS = [0.4, 0.6, 0.8, 1, 1.2];
 const LW_MIN = 0.1, LW_MAX = 5;
@@ -2731,10 +2734,7 @@ function loadTemplate(name) {
   const tplSettings = TEMPLATE_SETTINGS[name];
   if (tplSettings) {
     Object.assign(settings, tplSettings);
-    syncLineWidthUI();
-    applyLineWidth();
-    $('opt-grid').value = String(settings.gridStep);
-    applyGrid();
+    syncSettingsUI();
   }
   refresh();
 }
@@ -3383,6 +3383,57 @@ $('opt-cross').addEventListener('change', (e) => {
   renderCode();
   save();
 });
+
+// ---- resizable side panel
+const SIDE_MIN = 280, SIDE_DEFAULT = 380;
+const layoutEl = document.querySelector('.layout');
+const splitter = $('side-splitter');
+
+// Applies the preferred width, keeping at least the palette plus a usable canvas on the left.
+function applySideWidth() {
+  const max = Math.max(SIDE_MIN, layoutEl.clientWidth - 230 - 320);
+  const w = Math.round(Math.min(max, Math.max(SIDE_MIN, settings.sideWidth)));
+  layoutEl.style.setProperty('--side-w', `${w}px`);
+  return w;
+}
+
+function setSideWidth(w) {
+  settings.sideWidth = w;
+  settings.sideWidth = applySideWidth();
+}
+
+splitter.addEventListener('pointerdown', (e) => {
+  if (e.button !== 0) return;
+  e.preventDefault();
+  splitter.setPointerCapture(e.pointerId);
+  splitter.classList.add('dragging');
+  document.body.classList.add('resizing');
+  const right = layoutEl.getBoundingClientRect().right;
+  const move = (ev) => setSideWidth(right - ev.clientX);
+  const up = () => {
+    splitter.removeEventListener('pointermove', move);
+    splitter.removeEventListener('pointerup', up);
+    splitter.removeEventListener('pointercancel', up);
+    splitter.classList.remove('dragging');
+    document.body.classList.remove('resizing');
+    save();
+  };
+  splitter.addEventListener('pointermove', move);
+  splitter.addEventListener('pointerup', up);
+  splitter.addEventListener('pointercancel', up);
+});
+splitter.addEventListener('dblclick', () => { setSideWidth(SIDE_DEFAULT); save(); });
+splitter.addEventListener('keydown', (e) => {
+  const step = e.shiftKey ? 80 : 20;
+  const cur = parseFloat(layoutEl.style.getPropertyValue('--side-w')) || settings.sideWidth;
+  if (e.key === 'ArrowLeft') setSideWidth(cur + step);
+  else if (e.key === 'ArrowRight') setSideWidth(cur - step);
+  else return;
+  e.preventDefault();
+  e.stopPropagation();
+  save();
+});
+window.addEventListener('resize', applySideWidth);
 $('opt-linewidth').addEventListener('change', (e) => {
   const custom = $('opt-linewidth-custom');
   if (e.target.value === 'custom') {
@@ -3876,6 +3927,7 @@ function load() {
   if (GRID_STEPS.includes(s.gridStep)) settings.gridStep = s.gridStep;
   if (typeof s.alignAssist === 'boolean') settings.alignAssist = s.alignAssist;
   if (s.crossStyle in CROSS_STYLES) settings.crossStyle = s.crossStyle;
+  if (Number.isFinite(s.sideWidth) && s.sideWidth >= SIDE_MIN && s.sideWidth <= 3000) settings.sideWidth = s.sideWidth;
 }
 
 // ---------------------------------------------------------------- init
@@ -3890,6 +3942,7 @@ function syncSettingsUI() {
   $('opt-align').checked = settings.alignAssist;
   applyGrid();
   applyLineWidth();
+  applySideWidth();
 }
 
 load();

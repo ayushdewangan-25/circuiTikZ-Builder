@@ -28,6 +28,7 @@ You can also host the folder on any static web server, such as GitHub Pages.
 - **Arrow keys** move the selection by one grid step.
 - **Copy and paste:** `Ctrl`+`C` / `Ctrl`+`X` / `Ctrl`+`V`. A paste lands at the mouse pointer, or 1 cm down-right of the previous one if the pointer hasn't moved. `Ctrl`+drag a part to drop a copy of it, as in Simulink. Copying a group box copies everything inside it, and numbered labels (`R_1`, `C_2`, …) get the next free number.
 - **Zoom:** buttons, `Ctrl` + mouse wheel or trackpad pinch, keyboard shortcuts, and *Fit* (or `Space`) to show the whole circuit.
+- **Resizable side panel:** drag the edge between the canvas and the right-hand panel (Properties, Output settings, LaTeX code) to make it wider or narrower; double-click the edge to reset. The width is remembered.
 
 ### Components
 | Group | Components |
