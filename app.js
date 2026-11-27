@@ -191,7 +191,7 @@ const TEMPLATES = {
     ['wire', [1, 1], [5, 1]],
     ['wire', [1, 10], [5, 10]],
     ['bisw', [3, 1.5], [3, 3.5]], ['wire', [3, 3.5], [3, 7.5]], ['bisw', [3, 7.5], [3, 9.5]],
-    ['bisw', [5, 1.5], [5, 3.5]], ['wire', [5, 3.5], [5, 7.5]], ['bisw', [5, 7.5], [5, 9.5]],
+    ['bisw', [5, 1.5], [5, 3.5]], ['wire', [5, 3.5], [5, 7.5], { cross: 'over' }], ['bisw', [5, 7.5], [5, 9.5]],
     ['wire', [3, 4], [6, 4]], ['L', [6, 4], [8, 4], { label: 'L' }], ['wire', [8, 4], [9, 4]],
     ['wire', [5, 7], [9, 7]],
     ['xfmr', [9, 4], { label: 'n:1' }],
@@ -199,7 +199,7 @@ const TEMPLATES = {
     ['varrow', [11, 5], [11, 6], { label: 'v_{\\mathrm{sec}}', color: 'green' }],
     ['wire', [10, 4], [12, 4]],
     ['wire', [10, 7], [14, 7]],
-    ['mosd', [12, 1], [12, 4]], ['wire', [12, 4], [12, 7.5]], ['mosd', [12, 7.5], [12, 9.5]],
+    ['mosd', [12, 1], [12, 4]], ['wire', [12, 4], [12, 7.5], { cross: 'over' }], ['mosd', [12, 7.5], [12, 9.5]],
     ['mosd', [14, 1.5], [14, 3.5]], ['wire', [14, 3.5], [14, 7.5]], ['mosd', [14, 7.5], [14, 9.5]],
     ['wire', [12, 1], [18, 1], { term: '-o' }],
     ['wire', [12, 10], [18, 10], { term: '-o' }],
@@ -217,7 +217,7 @@ const TEMPLATES = {
 
 // Settings a template applies along with its circuit, so it opens with the intended look.
 const TEMPLATE_SETTINGS = {
-  dab: { lineWidth: 1, gridStep: 0.5 },
+  dab: { lineWidth: 1, gridStep: 0.5, crossStyle: 'gap' },
   dabgan: { lineWidth: 1.2, gridStep: 0.25, crossStyle: 'gap' },
   ctrlsps: { lineWidth: 0.8, gridStep: 0.25 },
   foc: { lineWidth: 0.8, gridStep: 0.25 },
