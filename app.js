@@ -216,11 +216,13 @@ const TEMPLATES = {
 };
 
 // Settings a template applies along with its circuit, so it opens with the intended look.
+// Every template also resets scale and line width to these defaults.
+const TEMPLATE_DEFAULTS = { scale: 1, lineWidth: 1 };
 const TEMPLATE_SETTINGS = {
-  dab: { lineWidth: 1, gridStep: 0.5, crossStyle: 'gap' },
-  dabgan: { lineWidth: 1.2, gridStep: 0.25, crossStyle: 'gap' },
-  ctrlsps: { lineWidth: 0.8, gridStep: 0.25 },
-  foc: { lineWidth: 0.8, gridStep: 0.25 },
+  dab: { gridStep: 0.5, crossStyle: 'gap' },
+  dabgan: { gridStep: 0.25, crossStyle: 'gap' },
+  ctrlsps: { gridStep: 0.25, style: 'european', crossStyle: 'gap' },
+  foc: { gridStep: 0.25 },
 };
 
 // 1Φ single-stage AC-DC converter built with GaN switches.
@@ -362,7 +364,7 @@ TEMPLATES.foc = [
 // ---------------------------------------------------------------- state
 let state = { elements: [], nextId: 1 };
 const settings = {
-  style: 'american', fullDoc: true, scale: 1, autoLabel: true, lineWidth: 0.8, gridStep: 1,
+  style: 'american', fullDoc: true, scale: 1, autoLabel: true, lineWidth: 1, gridStep: 1,
   alignAssist: true, crossStyle: 'none', sideWidth: 380,
 };
 const LINE_WIDTHS = [0.4, 0.6, 0.8, 1, 1.2];
@@ -2731,11 +2733,11 @@ function loadTemplate(name) {
   }
   setSel([]);
   pending = null;
-  const tplSettings = TEMPLATE_SETTINGS[name];
-  if (tplSettings) {
-    Object.assign(settings, tplSettings);
-    syncSettingsUI();
-  }
+  const tplSettings = { ...TEMPLATE_DEFAULTS, ...TEMPLATE_SETTINGS[name] };
+  const restyle = tplSettings.style && tplSettings.style !== settings.style;
+  Object.assign(settings, tplSettings);
+  syncSettingsUI();
+  if (restyle) buildPalette();
   refresh();
 }
 
