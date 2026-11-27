@@ -39,7 +39,7 @@ You can also host the folder on any static web server, such as GitHub Pages.
 | Sources | DC voltage source, current source, AC source, battery, dependent voltage and current sources |
 | Switches & meters | Open and closed switch, ammeter, voltmeter |
 | Nodes & labels | Ground, junction dot, open terminal, text label, open voltage branch |
-| Control blocks | Block, transform block (diagonal with two labels), PI block (with icon), multiplier, summing junction, modulator (carrier/PWM icon), inverter, motor, group box |
+| Control blocks | Block, transform block (diagonal with two labels), PI block (with icon), low-pass filter block (with icon), multiplier, summing junction, modulator (carrier/PWM icon), inverter, motor, group box |
 
 The MOSFET, bidirectional switch, BDS common drain, GaN BDS, GaNFET, transformer, inductor, capacitor and AC source use shapes copied exactly from a reference drawing. They are output as TikZ `pic`s, defined at the top of the generated code, so the pasted code needs no extra packages. Everything else uses standard CircuiTikZ components.
 

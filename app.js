@@ -75,6 +75,8 @@ const TYPES = {
                preset: { kind: 'transform', w: 1.25, h: 1.25, fill: 'yellow', shadow: true, label: '$dq$', label2: '$\\alpha\\beta$' } },
   piblk:     { name: 'PI block (icon)',     node: true, block: true,
                preset: { kind: 'pi', w: 1.5, h: 1.25, fill: 'blue', shadow: true, label: 'PI' } },
+  lpfblk:    { name: 'Low-pass filter',     node: true, block: true,
+               preset: { kind: 'lpf', w: 1.5, h: 1.25, fill: 'blue', shadow: true, label: 'LPF' } },
   mult:      { name: 'Multiplier',          node: true, block: true,
                preset: { kind: 'text', w: 0.5, h: 0.5, fill: 'white', shadow: true, label: '$\\times$' } },
   sum:       { name: 'Summing junction',    node: true, block: true, key: 'j',
@@ -123,7 +125,7 @@ const fillTex = (k) => {
   const c = FILLS[k]?.rgb;
   return c ? `{rgb,255:red,${c[0]};green,${c[1]};blue,${c[2]}}` : '';
 };
-const BLOCK_KINDS = ['text', 'transform', 'pi', 'pwm', 'inverter', 'group', 'sum'];
+const BLOCK_KINDS = ['text', 'transform', 'pi', 'lpf', 'pwm', 'inverter', 'group', 'sum'];
 const SUM_STYLES = { plus: 'Circle with +', cross: 'Circle with ×', plain: 'Plain circle' };
 const BLOCK_SHADOW = 0.07;            // cm, offset of the drop shadow
 const SIG_HEAD = { len: 0.22, half: 0.085 }; // cm, signal arrowhead
@@ -136,7 +138,7 @@ const PALETTE = [
   { title: 'Sources',          items: ['V', 'I', 'sV', 'battery', 'cV', 'cI'] },
   { title: 'Switches & meters', items: ['nos', 'ncs', 'ammeter', 'voltmeter'] },
   { title: 'Nodes & labels',   items: ['ground', 'circ', 'ocirc', 'text', 'open'] },
-  { title: 'Control blocks',   items: ['blk', 'tblk', 'piblk', 'mult', 'sum', 'pwm', 'inv', 'motor', 'group'] },
+  { title: 'Control blocks',   items: ['blk', 'tblk', 'piblk', 'lpfblk', 'mult', 'sum', 'pwm', 'inv', 'motor', 'group'] },
 ];
 
 const FIELDS = {
@@ -745,6 +747,12 @@ function blockIcon(el) {
       { p: [[0.1, 0.2], [0.92, 0.2]], arrow: true },
       { p: [[0.18, 0.45], [0.8, 0.72]] },
     ];
+    // Same axes as PI; flat pass band, then the roll-off.
+    case 'lpf': return [
+      { p: [[0.18, 0.12], [0.18, 0.9]], arrow: true },
+      { p: [[0.1, 0.2], [0.92, 0.2]], arrow: true },
+      { p: [[0.18, 0.72], [0.65 / 1.5, 0.72], [0.8, 0.28]] },
+    ];
     case 'pwm': {
       const tri = [], sq = [];
       for (let i = 0; i <= 6; i++) tri.push([0.1 + i * 0.12, i % 2 ? 0.52 : 0.32]);
@@ -824,7 +832,8 @@ function drawBlock(el, g, withText = true) {
       if (el.label2) g.appendChild(svgText(p2.x, p2.y, el.label2, 'middle', cls(el.label2)));
       break;
     }
-    case 'pi': block(y0 + h + 14); break;
+    case 'pi':
+    case 'lpf': block(y0 + h + 14); break;
     case 'pwm': block(y0 + 14); break;
     case 'group': block(y0 - 12 - (lines.length - 1) * 18); break;
     case 'sum':
@@ -1288,7 +1297,8 @@ function blockTex(el, T, usedPics) {
       if (label) out.push(node(U([0.3, 0.7]), label));
       if (el.label2?.trim()) out.push(node(U([0.7, 0.3]), el.label2.trim()));
       break;
-    case 'pi': if (label) out.push(node([C[0], Y0 - 0.05], label, 'north')); break;
+    case 'pi':
+    case 'lpf': if (label) out.push(node([C[0], Y0 - 0.05], label, 'north')); break;
     case 'pwm': if (label) out.push(node([C[0], Y1 - 0.05], label, 'north')); break;
     case 'group': if (label) out.push(node([C[0], Y1 + 0.05], label, 'south')); break;
     case 'sum':
